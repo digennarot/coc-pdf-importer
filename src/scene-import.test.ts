@@ -134,6 +134,55 @@ describe("importScenes", () => {
     assert.equal(landing.grid.type, 0);
   });
 
+  test("a map whose upload the server refuses gets no Scene", async () => {
+    const fp = (globalThis as any).foundry.applications.apps.FilePicker
+      .implementation;
+    const upload = fp.upload;
+    // FilePicker.upload answers false / nothing / {} when the upload fails.
+    fp.upload = async (s: string, dir: string, file: File) =>
+      file.name === "02-bad.webp" ? false : upload(s, dir, file);
+    const res = await importScenes([
+      webp("Pack/Ch/01-Good.webp", 2800, 2100),
+      webp("Pack/Ch/02-Bad.webp", 2800, 2100),
+    ]);
+    assert.equal(res.created, 1);
+    assert.equal(res.failed, 1);
+    assert.deepEqual(scenes.map((s) => s.name), ["01-Good"]);
+  });
+
+  test("the import stops when its first uploads all fail", async () => {
+    const fp = (globalThis as any).foundry.applications.apps.FilePicker
+      .implementation;
+    let tries = 0;
+    fp.upload = async () => (tries++, {});
+    await assert.rejects(
+      importScenes(
+        [1, 2, 3, 4, 5].map((i) => webp(`Pack/Ch/0${i}-Map.webp`, 2800, 2100)),
+      ),
+      /import stopped: the server did not accept "03-Map.webp"/,
+    );
+    assert.equal(tries, 3);
+    assert.equal(scenes.length, 0);
+  });
+
+  test("uploads go to The Forge's storage when running there", async () => {
+    const fp = (globalThis as any).foundry.applications.apps.FilePicker
+      .implementation;
+    const sources: string[] = [];
+    const upload = fp.upload;
+    fp.upload = async (s: string, dir: string, file: File) => {
+      sources.push(s);
+      return upload(s, dir, file);
+    };
+    (globalThis as any).ForgeVTT = { usingTheForge: true };
+    try {
+      await importScenes([webp("Pack/Ch/01-Hall.webp", 2800, 2100)]);
+    } finally {
+      delete (globalThis as any).ForgeVTT;
+    }
+    assert.deepEqual(sources, ["forgevtt"]);
+  });
+
   test("a re-import replaces the same-named scene in its folder", async () => {
     const pick = () => [webp("Pack/Ch/01-Hall.webp", 2800, 2100)];
     await importScenes(pick());

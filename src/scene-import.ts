@@ -98,10 +98,17 @@ function filePicker(): FoundryFilePicker {
   return fp;
 }
 
+// The file storage uploads go to: The Forge serves user data from its own
+// "forgevtt" storage, every other host from the server's "data" folder.
+export function uploadSource(): string {
+  return (globalThis as any).ForgeVTT?.usingTheForge ? "forgevtt" : "data";
+}
+
 // Uploads into the world's data folder, creating each directory once.
 class Uploader {
   #made = new Set<string>();
   base: string;
+  source = uploadSource();
   constructor(base: string) {
     this.base = base;
   }
@@ -113,23 +120,32 @@ class Uploader {
       path = path ? `${path}/${part}` : part;
       if (this.#made.has(path)) continue;
       try {
-        await fp.browse("data", path);
+        await fp.browse(this.source, path);
       } catch {
-        await fp.createDirectory("data", path, {});
+        await fp.createDirectory(this.source, path, {});
       }
       this.#made.add(path);
     }
   }
 
-  // Upload `file` under base/<slugged folders>; returns its data path.
+  // Upload `file` under base/<slugged folders>; returns its path. Foundry's
+  // FilePicker swallows upload errors (a rejected file, a proxy's "413 too
+  // large") and answers without a path, so that is a failure: a document
+  // pointing at a file that never arrived would show no image.
   async upload(file: File, folders: string[]): Promise<string> {
     const dir = [this.base, ...folders.map(slug)].join("/");
     await this.#ensure(dir);
     const named = new File([file], slug(file.name), { type: file.type });
-    const response = await filePicker().upload("data", dir, named, {}, {
+    const response = await filePicker().upload(this.source, dir, named, {}, {
       notify: false,
     });
-    return (response && response.path) || `${dir}/${named.name}`;
+    if (!response || !response.path)
+      throw new Error(
+        `the server did not accept "${file.name}" ` +
+          `(${(file.size / 1048576).toFixed(1)} MB) into ${this.source}:${dir}; ` +
+          "check the upload permission and any proxy upload size limit",
+      );
+    return response.path;
   }
 }
 
@@ -213,6 +229,9 @@ function creatureLike(actor: FoundryActor): boolean {
   return !(Number(c.app?.value) > 0 && Number(c.edu?.value) > 0);
 }
 
+// Consecutive failed uploads, before any success, that stop the import.
+const ABORT_AFTER_FAILED_UPLOADS = 3;
+
 // Import the picked folder's maps, handouts and creature tokens. Any other
 // file is skipped.
 export async function importScenes(
@@ -274,9 +293,14 @@ export async function importScenes(
     `worlds/${game.world?.id ?? "world"}/coc-pdf-importer`,
   );
 
+  // Stop when the first uploads all fail: the rest would fail the same way.
+  let uploaded = 0;
+  let uploadFailures = 0;
   for (const plan of plans) {
+    let src: string | null = null;
     try {
-      const src = await uploader.upload(byPath.get(plan.path)!, plan.folders);
+      src = await uploader.upload(byPath.get(plan.path)!, plan.folders);
+      uploaded++;
       const folder = await ensureFolderChain(plan.folders, "Scene");
       await removeReplaced(game.scenes, folder, plan.name);
       const scene = await Scene.create(
@@ -287,6 +311,10 @@ export async function importScenes(
     } catch (err) {
       result.failed++;
       console.error(`coc-pdf-importer: failed to import map "${plan.path}"`, err);
+      if (!src && !uploaded && ++uploadFailures >= ABORT_AFTER_FAILED_UPLOADS)
+        throw new Error(
+          `map upload failed, import stopped: ${(err as Error).message}`,
+        );
     }
     step();
   }
