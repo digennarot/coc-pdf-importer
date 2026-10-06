@@ -14,6 +14,7 @@ type ImportProgress = {
   journals?: number;
   handouts?: number;
   tokens?: number;
+  documents?: number;
   error?: string;
 };
 
@@ -158,6 +159,7 @@ export class PdfImporterConfig extends foundry.applications.api.HandlebarsApplic
       await this.render({ parts: ["progress"] });
       try {
         const result = await importScenes(maps, {
+          skipDocuments: files.map((f) => f.name),
           onProgress: (done, total) => {
             entry.done = done;
             entry.total = total;
@@ -170,6 +172,7 @@ export class PdfImporterConfig extends foundry.applications.api.HandlebarsApplic
         entry.failed = result.failed;
         entry.journals = result.journals;
         entry.handouts = result.handouts;
+        entry.documents = result.documents;
         entry.tokens = result.tokens;
       } catch (e) {
         entry.status = "error";
@@ -204,6 +207,7 @@ export class PdfImporterConfig extends foundry.applications.api.HandlebarsApplic
           const extras = [
             p.handouts ? `${p.handouts} handouts in ${p.journals} journals` : "",
             p.tokens ? `${p.tokens} actor tokens` : "",
+            p.documents ? `${p.documents} documents` : "",
           ].filter(Boolean);
           return extras.length ? `${scenes} (+${extras.join(", +")})` : scenes;
         }

@@ -278,6 +278,69 @@ describe("importScenes — handouts and creature tokens", () => {
   });
 });
 
+describe("importScenes — character tokens and documents", () => {
+  const actor = (name: string, type = "npc") => {
+    const a: any = { name, type, system: {}, updates: [] as any[] };
+    a.update = async (u: any) => a.updates.push(u);
+    actors.push(a);
+    return a;
+  };
+
+  test("a character token becomes the art of the actors it names", async () => {
+    const egorov = actor("Egorov");
+    const smith = actor("Dr. Julius Smith");
+    const smith2 = actor("Dr. Julius Smith"); // a second book's copy
+    const sophie = actor("Sophie");
+    const T = "Pack/xx-Tokens/HOE-TOKENS-WEBP";
+    const res = await importScenes([
+      webp(`${T}/TOK-Chapter 3-1893/NPC-CH03-Train-Egorov.webp`, 400, 400),
+      webp(`${T}/TOK-Chapter 1-London/NPC-CH01-Dr Julius Smith-Burned.webp`, 400, 400),
+      webp(`${T}/TOK-Chapter 1-London/NPC-CH01-Dr Julius Smith.webp`, 400, 400),
+      webp(`${T}/TOK-Chapter 1-London/NPC-CH01-Inspector Fleming.webp`, 400, 400),
+      webp(`${T}/FRAME/TOK-Frame-330.webp`, 400, 400),
+    ]);
+    assert.equal(res.tokens, 3);
+    assert.equal(res.failed, 0);
+    const src =
+      "worlds/test-world/coc-pdf-importer/pack/xx-tokens/hoe-tokens-webp/tok-chapter-3-1893/npc-ch03-train-egorov.webp";
+    assert.deepEqual(egorov.updates, [{ img: src, "prototypeToken.texture.src": src }]);
+    assert.match(smith.updates[0].img, /npc-ch01-dr-julius-smith\.webp$/);
+    assert.deepEqual(smith2.updates, smith.updates);
+    assert.equal(sophie.updates.length, 0);
+    // Only the tokens someone uses are uploaded.
+    assert.equal(uploads.length, 2);
+  });
+
+  test("the pack's PDFs become one journal of PDF pages, books and map key aside", async () => {
+    const pdf = (path: string) => {
+      const f = new File([new Uint8Array(4)], path.split("/").pop()!, { type: "application/pdf" });
+      Object.defineProperty(f, "webkitRelativePath", { value: path });
+      return f;
+    };
+    const res = await importScenes(
+      [
+        pdf("Pack/US_Passport_PDF.pdf"),
+        pdf("Pack/1923_Calendar_PDF.pdf"),
+        pdf("Pack/II - Through the Alps.pdf"),
+        pdf("Pack/USER MANUAL-HotOE.pdf"),
+      ],
+      { skipDocuments: ["II - Through the Alps.pdf"] },
+    );
+    assert.equal(res.documents, 2);
+    assert.equal(res.journals, 1);
+    const [j] = journals;
+    assert.equal(j.name, "Documents");
+    assert.equal(j.folder, folders.find((f) => f.name === "Pack" && f.type === "JournalEntry").id);
+    assert.deepEqual(
+      j.pages.map((p: any) => [p.name, p.type, p.src]),
+      [
+        ["1923 Calendar", "pdf", "worlds/test-world/coc-pdf-importer/pack/documents/1923-calendar-pdf.pdf"],
+        ["US Passport", "pdf", "worlds/test-world/coc-pdf-importer/pack/documents/us-passport-pdf.pdf"],
+      ],
+    );
+  });
+});
+
 describe("slug", () => {
   test("lowercase words joined by dashes, accents dropped, extension kept", () => {
     assert.equal(slug("00-TITLE & LANDING PAGES"), "00-title-landing-pages");

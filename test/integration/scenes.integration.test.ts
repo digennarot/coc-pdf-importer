@@ -8,8 +8,12 @@ import path from "node:path";
 import { extractPositionedText } from "../../src/process.ts";
 import {
   IMAGE_HEADER_BYTES,
+  documentTitle,
   imageSize,
+  isCharacterToken,
+  isDocumentPdf,
   isMapKeyManual,
+  matchCharacterTokens,
   parseMapKey,
   planScenes,
 } from "../../src/scenes.ts";
@@ -29,8 +33,9 @@ async function walk(dir: string): Promise<string[]> {
 describe("Horror on the Orient Express — map pack scenes", () => {
   let plans: ScenePlan[] = [];
   let keySize = 0;
+  let files: string[] = [];
   before(async () => {
-    const files = await walk(PACK).catch(() => [] as string[]);
+    files = await walk(PACK).catch(() => [] as string[]);
     const manual = files.find(isMapKeyManual);
     if (!manual) return;
     const key = parseMapKey(
@@ -85,5 +90,51 @@ describe("Horror on the Orient Express — map pack scenes", () => {
     assert.equal(cell("01a-Hotel Vanoli-GF-DAY"), 140);
     assert.equal(scene("LP-1923").grid.gridless, true);
     assert.equal(scene("00-Title Screen-HOE-A").grid.gridless, true);
+  });
+
+  test("character tokens name the books' NPCs and pregenerated investigators", (t) => {
+    if (!plans.length) return t.skip("map pack missing");
+    const tokens = files.filter(isCharacterToken);
+    assert.ok(tokens.length > 450, `${tokens.length} character tokens`);
+    // Actor names as the Orient Express books print them.
+    const m = matchCharacterTokens(tokens, [
+      "Dr. Julius Smith",
+      "Hieronymus Menkaph",
+      "Captain Roderick Barrington, Bart",
+      "Elizabeth 'Ellie' Myers",
+      "Professor Demir",
+      "Count de Bruessy",
+      "Countess de Bruessy",
+      "Selim Makryat",
+      "Martinus de L'Isles",
+      "Mrs. Elisabeth \"Betty\" Sunderland (AKA The Silver Fox)",
+      "Brothers of the Skin Jakob (Male) 3",
+      "Sophie",
+    ]);
+    const file = (n: string) => m.get(n)?.split("/").pop();
+    assert.equal(file("Dr. Julius Smith"), "NPC-CH01-Dr Julius Smith.webp");
+    assert.equal(file("Hieronymus Menkaph"), "NPC-CH03-Train-Hyeronimus Menkaph.webp");
+    assert.equal(file("Captain Roderick Barrington, Bart"), "PC-CH03-Cpt Roderick Barrington.webp");
+    assert.equal(file("Elizabeth 'Ellie' Myers"), "NPC-CH03-Train-Elizabeth Myers.webp");
+    assert.equal(file("Professor Demir"), "NPC-CH03-Constantinople-Pr Ahmed Demir.webp");
+    assert.equal(file("Count de Bruessy"), "NPC-CH17-Count Henri de Bruessy.webp");
+    assert.equal(file("Countess de Bruessy"), "NPC-CH17-Countess Emmanuelle de Bruessy.webp");
+    assert.equal(file("Selim Makryat"), "NPC-CH16-Selim Makryat.webp");
+    assert.equal(file("Martinus de L'Isles"), "PC-CH09-Martinus de l Isles.webp");
+    assert.equal(
+      file("Mrs. Elisabeth \"Betty\" Sunderland (AKA The Silver Fox)"),
+      "PC-1923-Elisabeth Sunderland.webp",
+    );
+    assert.equal(file("Brothers of the Skin Jakob (Male) 3"), "NPC-CH10-Brother of the Skin A.webp");
+    assert.equal(file("Sophie"), undefined);
+  });
+
+  test("the props and player aids become documents, the manual does not", (t) => {
+    if (!plans.length) return t.skip("map pack missing");
+    const docs = files.filter(isDocumentPdf).map(documentTitle).sort();
+    assert.equal(docs.length, 16);
+    assert.ok(docs.includes("US Passport"));
+    assert.ok(docs.includes("European Route Map Hi-Res"));
+    assert.ok(!docs.some((d) => /manual/i.test(d)));
   });
 });

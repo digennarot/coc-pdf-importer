@@ -15,7 +15,13 @@
   inferred from the image's dimensions. Each chapter's English handouts
   (`03-HANDOUTS-ADJ/ENG-WEBP`) become a Journal Entry named after the chapter,
   one image page per handout, and each creature token (`02-CREATURES TOKENS`)
-  becomes the portrait and token art of the imported actors it names.
+  and character token (`xx-Tokens`: NPCs, antagonists, pregenerated
+  investigators) becomes the portrait and token art of the imported actors it
+  names. The folder's other PDFs (props and player aids such as the US
+  Passport or the Train Car Plans) become PDF pages of a "Documents" journal.
+  A map whose image upload the server refuses no longer gets a Scene without a
+  background: it counts as failed, and the import stops with the reason when
+  the first uploads all fail.
 - **Horror on the Orient Express spells and tomes**: the spells (`DRAIN THE
   FEZ Cost : … Casting time : …`) and Mythos tomes printed inline in Books
   II–IV are imported as items alongside the actors.
@@ -150,6 +156,20 @@ automaton's "Soldier" token never lands on a human soldier. Each match gets the
 token as its portrait and prototype token image, sized in cells by its
 chapter's map grid; of a lettered set (`A` / `B` / `C`) the `A` image is used.
 Tokens no actor matches are listed in the console.
+
+The other images in a tokens folder (`xx-Tokens/…/NPC-CH03-Train-Egorov`,
+`PC-1923-Grace Murphy`) are character tokens, matched to the remaining actors
+by person name: the chapter prefix, a variant letter and titles (`Dr`, `Pr`,
+`Cpt`, `Mme`) are ignored, a place or period segment (`Constantinople-`,
+`-1893`) may be dropped, small misspellings are forgiven (`Hyeronimus`), a
+lone first name or a titled surname matches the full name (`Barlas` →
+`Barlas Demir`, `Professor Demir` → `Pr Ahmed Demir`), and a man's title never
+matches a woman's (`Count` / `Countess`). Each match gets the token as its
+portrait and prototype token image; frames are skipped.
+
+PDFs in the folder other than the map-key manual and the books picked in the
+document field (props, player aids, a handouts book) are uploaded and become
+one "Documents" journal with a PDF page each.
 
 ### Spells, Tomes & Artefacts
 

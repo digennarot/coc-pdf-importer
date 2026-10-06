@@ -16,8 +16,14 @@
   dalle dimensioni dell'immagine. Gli handout inglesi di ogni capitolo
   (`03-HANDOUTS-ADJ/ENG-WEBP`) diventano un diario con il nome del capitolo,
   una pagina immagine per handout, e ogni token delle creature
-  (`02-CREATURES TOKENS`) diventa ritratto e immagine del token degli attori
-  importati che nomina (importa prima i volumi).
+  (`02-CREATURES TOKENS`) e dei personaggi (`xx-Tokens`: PNG, antagonisti,
+  investigatori pregenerati) diventa ritratto e immagine del token degli attori
+  importati che nomina (importa prima i volumi). Gli altri PDF della cartella
+  (oggetti di scena e aiuti per i giocatori, come il passaporto US o le piante
+  delle carrozze) diventano pagine PDF di un diario "Documents". Una mappa la
+  cui immagine il server rifiuta non crea più una scena senza sfondo: conta come
+  fallita, e se falliscono tutti i primi caricamenti l'importazione si ferma
+  indicando il motivo.
 - **Incantesimi e tomi di Horror on the Orient Express**: gli incantesimi
   (`DRAIN THE FEZ Cost : … Casting time : …`) e i tomi dei Miti stampati nel
   testo dei volumi II–IV vengono importati come oggetti insieme agli attori.

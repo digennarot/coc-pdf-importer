@@ -395,3 +395,207 @@ export function chapterCellSizes(plans: ScenePlan[], chapter: string): number[] 
       tally.set(p.grid.size, (tally.get(p.grid.size) ?? 0) + 1);
   return [...tally].sort((a, b) => b[1] - a[1]).map(([c]) => c);
 }
+
+// --- character tokens --------------------------------------------------------
+
+// A character token: an image in a tokens folder that is not a creature token
+// ("xx-Tokens/HOE-TOKENS-WEBP/TOK-Chapter 1-London/NPC-CH01-Inspector
+// Fleming"), nor a frame to draw tokens with.
+export function isCharacterToken(path: string): boolean {
+  if (!isImage(path) || isCreatureToken(path)) return false;
+  const dirs = dirsOf(path);
+  return (
+    dirs.some((d) => /tokens?\b/i.test(d)) &&
+    !dirs.some((d) => /^frames?$/i.test(d)) &&
+    !/frame/i.test(sceneName(path))
+  );
+}
+
+// A character token's name, without its chapter prefix ("NPC-CH03-",
+// "PC-1923-", "NPC-Strangers-") and variant letter ("Ilsa von Hofler A",
+// "John Milton-B"): "Constantinople-Barlas Demir", "Dr Julius Smith-Burned".
+export function characterTokenName(path: string): {
+  name: string;
+  variant: string;
+} {
+  const base = sceneName(path)
+    .replace(/^(?:NPC|PC)-(?:CH\d+|OE|\d{3,4}|[A-Za-z]+)-/i, "")
+    .trim();
+  const m = /^(.*\S)(?:\s+|-)([A-Z])$/.exec(base);
+  return m ? { name: m[1], variant: m[2] } : { name: base, variant: "" };
+}
+
+// The names a token may stand for, longest first: its name and each run of
+// its "-" segments, since a segment can be a place or a state
+// ("Constantinople-Barlas Demir", "Mehmet Makryat-London") or part of the name
+// itself ("Dr Jean-Louis Saroch", "Unwen Ga-Walith").
+export function characterTokenCandidates(name: string): string[] {
+  const parts = name.split("-").map((p) => p.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (let len = parts.length; len > 0; len--)
+    for (let i = 0; i + len <= parts.length; i++)
+      out.push(parts.slice(i, i + len).join("-"));
+  return out;
+}
+
+const MALE_TITLES = new Set(
+  "mr sir lord count baron duc duke king prince father padre don brother messire".split(" "),
+);
+const FEMALE_TITLES = new Set(
+  "mrs miss ms mme madame madam mlle lady countess baroness dona sister".split(" "),
+);
+const TITLES = new Set([
+  ...MALE_TITLES,
+  ...FEMALE_TITLES,
+  ..."dr doctor pr prof professor cpt capt captain col colonel lt lieutenant major sgt inspector the a an sample typical ret bart et al aka staff".split(" "),
+]);
+
+// The words of a name, folded to plain lowercase letters: no accents,
+// parenthetical, nickname in quotes or possessive; an elided article joins
+// its word ("Martinus de L'Isles" -> "martinus de isles", "O'Bannon" ->
+// "bannon").
+function nameWords(name: string): string[] {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)/g, " ")
+    .replace(/(^|\s)["\u201c'\u2018][^"\u201d'\u2019]*["\u201d'\u2019](?=\s|$)/g, " ")
+    .replace(/['\u2019]s\b/g, "")
+    .replace(/\b[a-z]['\u2019](?=[a-z])/g, "")
+    .replace(/['\u2019]/g, "")
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+// A person's name reduced to the words that identify them: no titles,
+// initials or member number, singular ("Elizabeth 'Ellie' Myers" ->
+// ["elizabeth", "myer"]). A year stays: "Selim Makryat-1893" is not simply
+// "Selim Makryat".
+export function personWords(name: string): string[] {
+  return nameWords(name)
+    .filter(
+      (w) =>
+        w.length > 1 &&
+        !TITLES.has(w) &&
+        !/^(?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)$/.test(w),
+    )
+    .map((w) => w.replace(/(?<=[a-z]{3})s$/, ""));
+}
+
+// "m" / "f" for a name's gendered title ("Countess", "Mr"), else "".
+function titleGender(name: string): string {
+  const words = nameWords(name);
+  if (words.some((w) => FEMALE_TITLES.has(w))) return "f";
+  if (words.some((w) => MALE_TITLES.has(w))) return "m";
+  return "";
+}
+
+const hasTitle = (name: string) => nameWords(name).some((w) => TITLES.has(w));
+
+// Edit distance, for the pack's misspellings ("Mehmey", "Hyeronimus").
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++)
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+const sameWord = (a: string, b: string) =>
+  a === b ||
+  (Math.min(a.length, b.length) >= 5 &&
+    editDistance(a, b) <= (Math.min(a.length, b.length) >= 8 ? 2 : 1));
+
+// How well a token name fits an actor's name: 3 the same words; 2 every word
+// of one found in the other (two words at least); 1 a lone first name that
+// starts the other ("Barlas" / "Barlas Demir", "Nisra" / "Nisra the Daughter
+// of Fate"), or a titled lone surname that ends a titled other ("Professor
+// Demir" / "Pr Ahmed Demir"); 0 no match. A man's title never fits a woman's
+// ("Count" / "Countess").
+export function personMatch(token: string, actor: string): number {
+  const t = personWords(token);
+  const a = personWords(actor);
+  if (!t.length || !a.length) return 0;
+  const gt = titleGender(token);
+  const ga = titleGender(actor);
+  if (gt && ga && gt !== ga) return 0;
+  const within = (x: string[], y: string[]) =>
+    x.every((w) => y.some((v) => sameWord(w, v)));
+  if (t.length === a.length && within(t, a)) return 3;
+  if ((t.length >= 2 && within(t, a)) || (a.length >= 2 && within(a, t)))
+    return 2;
+  const lone = (one: string, oneName: string, other: string[], otherName: string) =>
+    (one.length >= 4 && !hasTitle(oneName) && one === other[0]) ||
+    (hasTitle(oneName) && hasTitle(otherName) && sameWord(one, other[other.length - 1]));
+  if (t.length === 1 && lone(t[0], token, a, actor)) return 1;
+  if (a.length === 1 && lone(a[0], actor, t, token)) return 1;
+  return 0;
+}
+
+// The token each actor gets: for every actor name, the best-fitting token —
+// the closest fit, then the token whose whole name fits (not a place- or
+// period-qualified copy, "Selim Makryat-1893"), then the token without (or
+// with the first) variant letter, then the path. Returns actor name -> path.
+export function matchCharacterTokens(
+  tokenPaths: string[],
+  actorNames: string[],
+): Map<string, string> {
+  type Fit = { path: string; rest: number; score: number; variant: string };
+  const best = new Map<string, Fit>();
+  const rank = (v: string) => (v ? v.charCodeAt(0) - 64 : 0.5);
+  const better = (x: Fit, y: Fit) =>
+    x.score !== y.score
+      ? x.score > y.score
+      : x.rest !== y.rest
+        ? x.rest < y.rest
+        : x.variant !== y.variant
+          ? rank(x.variant) < rank(y.variant)
+          : x.path < y.path;
+  const names = [...new Set(actorNames)];
+  for (const path of [...tokenPaths].sort()) {
+    const { name, variant } = characterTokenName(path);
+    for (const candidate of characterTokenCandidates(name)) {
+      const fits = names
+        .map((n) => ({ n, score: personMatch(candidate, n) }))
+        .filter((f) => f.score > 0);
+      if (!fits.length) continue;
+      const rest = name.length - candidate.length;
+      for (const { n, score } of fits) {
+        const fit = { path, rest, score, variant };
+        const cur = best.get(n);
+        if (!cur || better(fit, cur)) best.set(n, fit);
+      }
+      break; // the longest candidate that names someone
+    }
+  }
+  return new Map([...best].map(([n, f]) => [n, f.path]));
+}
+
+// --- documents -----------------------------------------------------------
+
+// A PDF of the pack worth reading in Foundry: a prop or player aid ("US
+// Passport", "Train Car Plans"), not the map-key manual.
+export function isDocumentPdf(path: string): boolean {
+  return /\.pdf$/i.test(path) && !isMapKeyManual(path);
+}
+
+// A document's page title: "European_Route_Map_Hi-Res_PDF1.pdf" ->
+// "European Route Map Hi-Res".
+export function documentTitle(path: string): string {
+  const file = path.split("/").pop() ?? path;
+  return (
+    file
+      .replace(/\.pdf$/i, "")
+      .replace(/[_ ]+PDF\d*$/i, "")
+      .replace(/_+/g, " ")
+      .trim() || file
+  );
+}
