@@ -555,3 +555,139 @@ describe("The Lightless Beacon", () => {
     assert.equal(needle.value, 30); // name not prefixed with "Hard STR roll"
   });
 });
+
+// ---------------------------------------------------------------------------
+// Horror on the Orient Express — spelled-out labels, kerned caps names, stat
+// lines and running headers repeated like page furniture
+// ---------------------------------------------------------------------------
+// These PDFs are read from test/integration/Horror on the Orient Express/
+// (gitignored like every PDF) rather than fixtures/.
+const ORIENT_EXPRESS = "./test/integration/Horror on the Orient Express";
+
+async function loadOrientExpress(book: string) {
+  const path = `${ORIENT_EXPRESS}/${book}.pdf`;
+  let buf: Buffer;
+  try {
+    buf = await fs.readFile(path);
+  } catch {
+    throw new Error(`Orient Express book "${book}" not found at ${path}.`);
+  }
+  return (await processPDF(new Uint8Array(buf))).actors;
+}
+
+describe("Horror on the Orient Express — Through the Alps", () => {
+  let chars: Awaited<ReturnType<typeof load>>;
+  before(async () => {
+    chars = await loadOrientExpress("II - Through the Alps");
+  });
+
+  test('James Beddows — "Sanity N" and "Damage Bonus : +1D4."', () => {
+    const c = byName(chars, "James Beddows");
+    assert.equal(c.age, 62);
+    assert.equal(c.characteristics.SAN!.value, 32);
+    assert.equal(c.derived.DB, "+1D4");
+    assert.deepEqual(
+      c.combat.map((a) => a.name),
+      ["Brawl", "Dodge"],
+    );
+  });
+
+  test("caps names lose the section heading, keep the honorific", () => {
+    assert.ok(byName(chars, "Count Rudolph Razumosky"));
+    assert.ok(byName(chars, "Dr. Julius Smith"));
+    assert.ok(byName(chars, "Maximillian von Wurtheim"));
+  });
+
+  test("an apparent age stays out of the name", () => {
+    const c = byName(chars, "Edgar Wellington");
+    assert.equal(c.age, 35);
+    assert.equal(c.description, "Occultist");
+  });
+
+  test("the box title and DB dice do not lead the first attack", () => {
+    const c = byName(chars, "Karla Minkoff");
+    assert.equal(c.combat[0].name, "Brawl");
+    assert.equal(c.combat[0].damage, "1D3+1D4");
+  });
+
+  test("prose after a weapon's dice is its note, a spell heading ends it", () => {
+    const sword = byName(chars, "Haragrim").combat.find(
+      (a) => a.name === "Knightly Sword",
+    )!;
+    assert.equal(sword.damage, "1D10+1D4");
+    assert.match(sword.note!, /^Haragrim's sword is of magic metal/);
+    const scimitar = byName(chars, "Ulug").combat.find(
+      (a) => a.name === "Scimitar",
+    )!;
+    assert.equal(scimitar.damage, "1D4+1D6");
+  });
+
+  test('an open-ended "EDU 99+" is read and stays out of the attacks', () => {
+    const c = byName(chars, "Mironim-Mer");
+    assert.equal(c.characteristics.EDU!.value, 99);
+    assert.deepEqual(
+      c.combat.map((a) => a.name),
+      ["Claw", "Tentacles"],
+    );
+  });
+});
+
+describe("Horror on the Orient Express — Strangers on the Train", () => {
+  let chars: Awaited<ReturnType<typeof load>>;
+  before(async () => {
+    chars = await loadOrientExpress("V - Strangers on the Train");
+  });
+
+  test("kerned caps names are read whole", () => {
+    // "W" "ALTER" / "MARGRA" "VE" … arrive as abutting items.
+    for (const n of [
+      "Walter Partridge",
+      "Kay Montague",
+      "Patrick Jensen",
+      "Margrave Milos Valinchek",
+      "Violet Davenport",
+    ])
+      assert.ok(byName(chars, n), `${n} missing`);
+  });
+
+  test("stat lines repeated on every page are not stripped as furniture", () => {
+    const c = byName(chars, "Walter Partridge");
+    assert.equal(c.derived.DB, "0");
+    assert.ok(c.combat.some((a) => a.name === "Dodge"));
+  });
+
+  test("the body-height running header never joins a name", () => {
+    assert.ok(
+      chars.every(
+        (c) => !/Orient Express|Strangers on the Train/i.test(c.name),
+      ),
+    );
+  });
+
+  test("a caps name's own-run qualifier and a drop cap", () => {
+    assert.ok(byName(chars, "Col. Andrew Herring (Ret.)"));
+    // A paragraph's drop cap ("H") is not a heading; Simon's reprint merges.
+    assert.ok(chars.every((c) => c.name.length > 1));
+    assert.equal(chars.filter((c) => /^Simon Johns/.test(c.name)).length, 1);
+  });
+
+  test("pre-generated investigators are named from their trailing heading", () => {
+    assert.ok(chars.every((c) => !/^Unknown/.test(c.name)));
+    const miller = byName(chars, "Colonel Nathaniel R. Miller");
+    assert.equal(miller.age, 42);
+    assert.equal(miller.characteristics.EDU!.value, 91);
+    assert.ok(byName(chars, "Brett Bozeman"));
+    assert.equal(byName(chars, "Lord Martin Alan-Brown").derived.DB, "+1D4");
+  });
+
+  test("a reprint named by its descriptor merges into its NPC", () => {
+    assert.ok(chars.every((c) => c.name !== "British Army"));
+  });
+
+  test('a die count set apart ("+1 D4") and a kerned "50E DU"', () => {
+    const chef = byName(chars, "Richard Montalou");
+    assert.equal(chef.derived.DB, "+1D4");
+    assert.equal(chef.combat[0].name, "Kitchen Knife");
+    assert.equal(byName(chars, "Jean Renour").characteristics.EDU!.value, 45);
+  });
+});

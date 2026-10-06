@@ -2475,3 +2475,142 @@ describe("parseCocCharacters (unit)", () => {
     assert.equal(c.characteristics.STR!.value, 75);
   });
 });
+
+describe("Orient Express stat blocks (unit)", () => {
+  const beddows =
+    "JAMES BEDDOWS , Age 62, Manservant to Dr. Smith STR 60 CON 70 SIZ 80 INT 55 " +
+    "POW 50 DEX 60 APP 65 EDU 75 Sanity 32 Build 1 Move 4 HP 15 Damage Bonus : +1D4. " +
+    "Brawl 75% (37/15), damage 1D3 + 1D4. Dodge 35% (17/7) Skills : Art (Cook) 65%, " +
+    "Etiquette 90%. Languages : English (own) 75%";
+
+  test('spelled-out "Sanity N" is the SAN characteristic', () => {
+    const [c] = parseCocCharacters(beddows);
+    assert.equal(c.characteristics.SAN!.value, 32);
+  });
+
+  test("damage bonus closing its sentence keeps its value", () => {
+    const [c] = parseCocCharacters(beddows);
+    assert.equal(c.derived.DB, "+1D4");
+    assert.deepEqual(
+      c.combat.map((a) => a.name),
+      ["Brawl", "Dodge"],
+    );
+  });
+
+  test('a sign set apart from the bonus ("+ 1D4") is not an attack name', () => {
+    const [c] = parseCocCharacters(
+      beddows.replace("Damage Bonus : +1D4.", "Damage Bonus : + 1D4"),
+    );
+    assert.equal(c.derived.DB, "+1D4");
+    assert.equal(c.combat[0].name, "Brawl");
+  });
+
+  test("an apparent age after the age stays out of the name", () => {
+    const [c] = parseCocCharacters(
+      "EDGAR WELLINGTON , Age 35 (looks 55), Occultist STR 60 CON 50 SIZ 70 INT 75 " +
+        "POW 65 DEX 75 APP 55 EDU 75 Sanity 38 Build 1 Move 7 HP 12",
+    );
+    assert.equal(c.name, "Edgar Wellington");
+    assert.equal(c.age, 35);
+    assert.equal(c.description, "Occultist");
+  });
+
+  test("a section heading before a caps name is dropped, an honorific kept", () => {
+    const stats =
+      "STR 55 CON 65 SIZ 60 INT 75 POW 70 DEX 65 APP 70 EDU 80 Sanity 60 Build 0 Move 7 HP 12";
+    const [count] = parseCocCharacters(
+      `Train Passengers COUNT RUDOLPH RAZUMOSKY , Age 55, Russian Noble ${stats}`,
+    );
+    assert.equal(count.name, "Count Rudolph Razumosky");
+    const [doctor] = parseCocCharacters(
+      `Dr. JULIUS SMITH , Age 59, Paraphysical Researcher ${stats}`,
+    );
+    assert.equal(doctor.name, "Dr. Julius Smith");
+    const [baron] = parseCocCharacters(
+      `MAXIMILLIAN von WURTHEIM , Age 50, Aesthete ${stats}`,
+    );
+    assert.equal(baron.name, "Maximillian von Wurtheim");
+  });
+  test("weapon prose and footnotes after the dice are the note", () => {
+    const [c] = parseCocCharacters(
+      "HARAGRIM , Knight of Celephais STR 70 CON 70 SIZ 70 INT 60 POW 65 DEX 55 " +
+        "APP 65 EDU 45 Sanity 70 Build: 1 Move: 8 HP: 14 Damage Bonus : +1D4 " +
+        "Knightly Sword 73% (36/14), damage 1D10 + 1D4 Haragrim's sword is of magic " +
+        "metal as transparent as crystal, and may not be drawn by a coward. " +
+        "Tentacles* 40% (20/8), damage 1D3 + draining * Leech-like tentacles hold prey",
+    );
+    assert.deepEqual(
+      c.combat.map((a) => [a.name, a.damage, a.note]),
+      [
+        [
+          "Knightly Sword",
+          "1D10+1D4",
+          "Haragrim's sword is of magic metal as transparent as crystal, and may not be drawn by a coward",
+        ],
+        ["Tentacles", "1D3 + draining", "Leech-like tentacles hold prey"],
+      ],
+    );
+  });
+
+  test("a spell heading after the last attack ends its damage", () => {
+    const [c] = parseCocCharacters(
+      "ULUG , Age 40, Dancer STR 75 CON 80 SIZ 75 INT 65 POW 70 DEX 70 APP 50 " +
+        "EDU 30 Sanity 0 Build: 2 Move: 7 HP: 17 Damage Bonus : +1D6 " +
+        "Scimitar 60% (30/12), damage 1D4 + 1D6 DANCE OF THE GELIN Cost : 1D4 magic points",
+    );
+    assert.equal(c.combat[0].damage, "1D4+1D6");
+  });
+
+  test("split dice, kerned EDU and open-ended values in a bare stat line", () => {
+    const [chef] = parseCocCharacters(
+      "RICHARD MONTALOU , Age 33, Assistant Chef STR 65 CON 50 SIZ 65 INT 60 POW 65 " +
+        "DEX 65 APP 55E DU 80 Sanity 65 Build: 1 Move: 9 HP: 11 Damage Bonus : +1 D4 " +
+        "Kitchen Knife 80% (40/16), damage 1D6 + 1D4 Dodge 32% (16/6)",
+    );
+    assert.equal(chef.derived.DB, "+1D4");
+    assert.equal(chef.characteristics.APP!.value, 55);
+    assert.equal(chef.characteristics.EDU!.value, 80);
+    assert.equal(chef.combat[0].name, "Kitchen Knife");
+
+    const [dreamer] = parseCocCharacters(
+      "MIRONIM-MER , Age 280, Wanderer STR 50 CON 60 SIZ 80 INT 80 POW 150 DEX 100 " +
+        "APP 85 ED 99+ Sanity n/a Build: 1 Move: 8 HP: 14 Damage Bonus : +1D4 " +
+        "Whitewood Knife 88% (44/17), damage 1D4+4 + 1D4",
+    );
+    assert.equal(dreamer.characteristics.EDU!.value, 99);
+    assert.equal(dreamer.combat[0].name, "Whitewood Knife");
+  });
+
+  test("a characteristic footnote stays out of the first attack name", () => {
+    const [c] = parseCocCharacters(
+      "BIN NASSAR , Age 40, Assassin STR 70 CON 80 SIZ 65 INT 65 POW 80 DEX 80 " +
+        "APP 50 (70)* EDU 55 Sanity 65/57* Build: 1 Move: 9 HP 14 " +
+        "* Appearance in brackets as Charles Drake Damage Bonus : +1D4 " +
+        "Magic points : 16 Yataghan Knife 75% (37/15), damage 1D4+3 + 1D4",
+    );
+    assert.equal(c.combat[0].name, "Yataghan Knife");
+  });
+  test("a pre-generated sheet's name heading after its prose names it", () => {
+    const [c] = parseCocCharacters(
+      "STR 60 CON 45 SIZ 70 INT 80 POW 85 DEX 70 APP 80 EDU 91 Sanity 85 Build: 1 " +
+        "Move: 7 HP: 11 Damage Bonus : +1D4 Brawl 35% (17/7), damage 1D3 + 1D4 " +
+        "Skills : Charm 60%. Colonel Miller sips his scotch and talks to the ladies. " +
+        "COLONEL NA THANIEL R. MILLER Age 42, Military Attaché Notes:",
+    );
+    assert.equal(c.name, "Colonel Nathaniel R. Miller");
+    assert.equal(c.age, 42);
+    assert.equal(c.description, "Military Attaché");
+  });
+
+  test("a reprint whose descriptor became its name merges into the NPC", () => {
+    const stats =
+      "STR 60 CON 80 SIZ 55 INT 45 POW 55 DEX 75 APP 65 EDU 50 Sanity 85 Build: 0 Move: 6 HP: 13";
+    const chars = parseCocCharacters(
+      `COL. ANDREW HERRING , Age 67, British Army ${stats} Damage Bonus : 0 Brawl 40% (20/8), damage 1D3. He struts around the train. British Army ${stats} Brawl 40% (20/8), damage 1D3`,
+    );
+    assert.deepEqual(
+      chars.map((c) => c.name),
+      ["Col. Andrew Herring"],
+    );
+  });
+});

@@ -469,10 +469,16 @@ export function parseCocCharacters(
     // The first is named from the title (whether the title was too tall for the
     // name path and came in as the section heading, or was read as the name
     // itself); the following ones, which have no heading of their own, continue
-    // it as "<title> 2", "<title> 3", …
+    // it as "<title> 2", "<title> 3", …. A title carries no age: an aged NPC
+    // set in a heading run ("SIMON JOHNS" / "Age 6, …") is one person, and a
+    // headerless block after it is someone else.
     const titled = !name || name === clean(headers[i].sectionHeading);
     if (parsed.length === 1 && titled) {
-      if (headers[i].sectionHeading && parsed[0].name !== "Unknown") {
+      if (
+        headers[i].sectionHeading &&
+        parsed[0].name !== "Unknown" &&
+        parsed[0].age == null
+      ) {
         profileRun = { base: parsed[0].name, first: parsed[0], count: 1 };
       } else if (profileRun && parsed[0].name === "Unknown") {
         profileRun.count++;
@@ -559,7 +565,31 @@ function disambiguateNames(characters: CocCharacter[]): CocCharacter[] {
   const out: CocCharacter[] = [];
   const first = new Map<string, CocCharacter>();
   const count = new Map<string, number>();
+  const statsKey = (c: CocCharacter) => JSON.stringify(c.characteristics);
   for (const c of characters) {
+    // A nameless reprint (Orient Express repeats each NPC on a handout page
+    // with no heading of its own) is the named actor with the same full stat
+    // line. So is one whose lost heading left its descriptor as the name
+    // ("British Army" for "Col. Andrew Herring (Ret.), British Army"). The
+    // named copy may come after the nameless one (a pre-generated sheet prints
+    // its stats again under the name heading); it absorbs this one in place.
+    if (Object.keys(c.characteristics).length >= 8) {
+      const named =
+        c.name === "Unknown"
+          ? characters.find(
+              (o) => o.name !== "Unknown" && statsKey(o) === statsKey(c),
+            )
+          : out.find(
+              (o) =>
+                !c.description &&
+                c.name.toLowerCase() === o.description?.toLowerCase() &&
+                statsKey(o) === statsKey(c),
+            );
+      if (named) {
+        absorbReprint(named, c);
+        continue;
+      }
+    }
     const seen = first.get(c.name);
     if (!seen) {
       first.set(c.name, c);
@@ -569,26 +599,8 @@ function disambiguateNames(characters: CocCharacter[]): CocCharacter[] {
     }
     // A reprint (a scenario's NPCs listed again in an appendix): one actor,
     // taking from the second copy whatever the first copy's page cut off.
-    if (
-      seen.description === c.description &&
-      JSON.stringify(seen.characteristics) === JSON.stringify(c.characteristics)
-    ) {
-      if (seen.age == null) seen.age = c.age;
-      if (!Object.keys(seen.skills).length) seen.skills = c.skills;
-      if (!seen.combat.length) seen.combat = c.combat;
-      if (!seen.spells.length) seen.spells = c.spells;
-      if (!seen.items.length) seen.items = c.items;
-      if (!seen.background.length) seen.background = c.background;
-      if (seen.sanityLoss == null) seen.sanityLoss = c.sanityLoss;
-      if (seen.armor == null) seen.armor = c.armor;
-      if (seen.attacksPerRound == null)
-        seen.attacksPerRound = c.attacksPerRound;
-      if (seen.derived.MP == null && seen.derived.Move == null)
-        seen.derived = {
-          ...c.derived,
-          Luck: seen.derived.Luck ?? c.derived.Luck,
-        };
-      if (!seen.pulp && c.pulp) seen.pulp = c.pulp;
+    if (seen.description === c.description && statsKey(seen) === statsKey(c)) {
+      absorbReprint(seen, c);
       continue;
     }
     const n = (count.get(c.name) ?? 1) + 1;
@@ -602,6 +614,28 @@ function disambiguateNames(characters: CocCharacter[]): CocCharacter[] {
     });
   }
   return out;
+}
+
+// Fill whatever `seen` lacks from its reprint `c` (one page's copy may be cut
+// off where the other is whole).
+function absorbReprint(seen: CocCharacter, c: CocCharacter): void {
+  if (seen.age == null) seen.age = c.age;
+  if (!Object.keys(seen.skills).length) seen.skills = c.skills;
+  if (!seen.combat.length) seen.combat = c.combat;
+  if (!seen.spells.length) seen.spells = c.spells;
+  if (!seen.items.length) seen.items = c.items;
+  if (!seen.background.length) seen.background = c.background;
+  if (seen.sanityLoss == null) seen.sanityLoss = c.sanityLoss;
+  if (seen.armor == null) seen.armor = c.armor;
+  if (seen.attacksPerRound == null) seen.attacksPerRound = c.attacksPerRound;
+  if (seen.derived.MP == null && seen.derived.Move == null)
+    seen.derived = {
+      ...c.derived,
+      Luck: seen.derived.Luck ?? c.derived.Luck,
+    };
+  // A copy that prints "Damage Bonus" with no value.
+  if (seen.derived.DB == null) seen.derived.DB = c.derived.DB;
+  if (!seen.pulp && c.pulp) seen.pulp = c.pulp;
 }
 
 // A block that isn't really an actor: its name was picked out of a prose/credits
@@ -656,6 +690,7 @@ function cleanActorName(name: string): string {
   // 's Ghost", "M'Weru 's Bodyguards").
   cleaned = cleaned.replace(/\s+(['’]s)\b/g, "$1");
   cleaned = clean(cleaned);
+  cleaned = capsNameTail(cleaned);
   // Some books print every stat-block name in ALL CAPS ("BILLY THE KID");
   // proper-case those so they read naturally. A name already in mixed case
   // (most books) is left untouched so an intentional internal capital (e.g.
@@ -667,6 +702,47 @@ function cleanActorName(name: string): string {
   if (paren > 0 && isAllCapsName(cleaned.slice(0, paren).trim()))
     return `${titleCaseTitle(cleaned.slice(0, paren).trim())} ${cleaned.slice(paren)}`;
   return cleaned;
+}
+
+// Orient Express sets its names in caps, and the header path reads them along
+// with the mixed-case section heading before them ("Passengers COUNT RUDOLPH
+// RAZUMOSKY", "Statistics DR. RADKO JORDANOV"). The trailing caps words are the
+// name, title-cased; a leading honorific ("Dr. JULIUS SMITH", "Doña MARGARITA
+// del GARDA") stays, any other heading is dropped. A caps name with lowercase
+// particles ("MAXIMILLIAN von WURTHEIM") or a small-caps glitch ("LaVERGE",
+// "MeRISSA OCANA") is title-cased too. A name with no caps word is unchanged.
+const NAME_PARTICLE = /^(?:de|del|della|di|da|du|von|van|der|la|le)$/;
+const HONORIFIC =
+  /^(?:Dr|Mr|Mrs|Ms|Miss|Sir|Lady|Lord|Don|Doña|Count|Countess|Baron|Baroness|Professor|Prof|Captain|Capt|Father|Colonel|Col|Major|Lieutenant|Lt)\.?$/;
+function capsNameTail(name: string): string {
+  const tokens = name.split(" ");
+  const bare = (t: string) => t.replace(/^["'“(]+|["'”),]+$/g, "");
+  // A caps word: two or more letters, all capitals, or a small-caps glitch.
+  const capsWord = (t: string) =>
+    /^[A-Z][A-Z.'’-]*[A-Z.]$/.test(bare(t)) ||
+    /^[A-Z][a-z]{1,2}[A-Z]{3,}$/.test(bare(t));
+  const inName = (t: string) =>
+    capsWord(t) || NAME_PARTICLE.test(t) || /^[A-Z]\.?$/.test(bare(t));
+  let start = tokens.length;
+  while (start > 0 && inName(tokens[start - 1])) start--;
+  // The name does not open with a particle or a lone initial.
+  while (start < tokens.length && !capsWord(tokens[start])) start++;
+  const tail = tokens.slice(start);
+  const words = tail.filter(capsWord);
+  if (!words.length) return name;
+  const prefix = tokens.slice(0, start);
+  // Already all caps: the caller title-cases it.
+  if (!prefix.length && !tail.some((t) => /[a-z]/.test(t))) return name;
+  // A lone short caps word after a heading may be an acronym ("of the FBI").
+  if (prefix.length && words.length === 1 && bare(words[0]).length < 4)
+    return name;
+  if (prefix.length && !/[a-z]/.test(prefix.join(" "))) return name;
+  const cased = titleCaseTitle(
+    tail.map((t) => (capsWord(t) ? t.toUpperCase() : t)).join(" "),
+  );
+  if (prefix.length === 1 && HONORIFIC.test(prefix[0]))
+    return `${prefix[0]} ${cased}`;
+  return cased;
 }
 
 // A quote mark left dangling by name-extraction truncating before its partner
@@ -903,7 +979,12 @@ function sectionHeadingFromChunks(
     // walking back (past the description) to the real heading above it. Nor is
     // a run without a letter — a ")" set in its own size at the end of a title
     // ("EGYPTIAN COBRA (NAJA HAJE )").
-    if (/[A-Za-zÀ-ɏ]/.test(text) && !isFurnitureName(text))
+    // Nor a lone drop-cap letter opening a paragraph ("H").
+    if (
+      /[A-Za-zÀ-ɏ]/.test(text) &&
+      !/^[A-Za-zÀ-ɏ]$/.test(text) &&
+      !isFurnitureName(text)
+    )
       return { text, start };
     i = j;
   }
@@ -939,7 +1020,7 @@ function parseNameRun(
   // marker so the whole list is kept out of the name (not just up to the 2nd age).
   // A quoted name's closing quote may follow the comma ('"VIOLET SCANLON," age').
   const ageMatch =
-    /,\s*["']?\s*(?:ages?\s+|appears?\s+)?(\d{1,3})\+?\s*(?:,|$)/i.exec(
+    /,\s*["']?\s*(?:ages?\s+|appears?\s+)?(\d{1,3})\+?\s*(?:\([^()]{0,30}\)\s*)?(?:,|$)/i.exec(
       heading,
     );
   if (ageMatch) {
@@ -1028,7 +1109,7 @@ function parseHeader(
   // the start of the list, so the name stops before the whole list (a later bare
   // ", 59," is a continuation, not a new name).
   const ageRe =
-    /,\s*["']?\s*((?:ages?|appears?)\s+)?(\d{1,3})\+?\s*(?:,|(?=\s*$))/gi;
+    /,\s*["']?\s*((?:ages?|appears?)\s+)?(\d{1,3})\+?\s*(?:\([^()]{0,30}\)\s*)?(?:,|(?=\s*$))/gi;
 
   let best: RegExpMatchArray | null = null;
   let prefixed: RegExpMatchArray | null = null;
@@ -1043,7 +1124,10 @@ function parseHeader(
   // ", 38, hybrid, ..." form, so whichever candidate sits closest to STR is the
   // heading.
   let bare: RegExpMatchArray | null = null;
-  for (const m of window.matchAll(/\bage\s+(\d{1,3}|unknown)\s*,\s*/gi))
+  // An apparent age may follow the real one ("Age 35 (looks 55), Occultist").
+  for (const m of window.matchAll(
+    /\bage\s+(\d{1,3}|unknown)\s*(?:\([^()]{0,30}\)\s*)?,\s*/gi,
+  ))
     bare = m;
   if (
     bare &&
@@ -1072,6 +1156,9 @@ function parseHeader(
             chunks[h - 1].start >= leftBound
           )
             h--;
+          // A qualifier set in its own run ("COL. ANDREW HERRING" "(Ret.)")
+          // is not the whole name: the run before it is too.
+          if (h > 0 && /^\(.*\)$/.test(chunks[h].text.trim())) h--;
           from = Math.max(from, chunks[h].start);
         }
       }
@@ -1287,8 +1374,15 @@ const HEADING_WORDS = new Set([
 // in whether NPC names are printed in caps), bounded by known heading words.
 function extractName(pre: string): string {
   const strict = collectName(pre, false);
-  if (strict) return strict;
-  return collectName(pre, true);
+  // Strict mode stops at a caps word, so a caps name with a mixed-case
+  // qualifier ("COL. ANDREW HERRING (Ret.)") yields only the qualifier.
+  if (
+    strict &&
+    !/^\(/.test(strict) &&
+    strict.replace(/[^A-Za-z]/g, "").length > 1
+  )
+    return strict;
+  return collectName(pre, true) || strict;
 }
 
 // Title abbreviations that legitimately carry a trailing period inside a name.
@@ -1448,8 +1542,25 @@ function parseBlock(
   // parse profiles straight from it when nothing else turned any up. Restricted
   // to single characters: a multi-column table carries its own "Fighting NN%"
   // rows, which would otherwise swallow the whole table as one attack name.
+  // The characteristics and derived values are dropped first, so the last
+  // one's dice ("DB : +1D4 Brawl 70%") are not read into the first attack name;
+  // so are a valueless "Damage Bonus" label, Orient Express's "Statistics"
+  // box title, an unrated "Sanity n/a", and a footnote on a characteristic
+  // ("APP 50 (70)* … * Appearance in brackets as Charles Drake DB : +1D4"),
+  // whose value may give an alternative ("Sanity 65/57*", "HP: 13/6*").
   if (numCols <= 1 && !combat.length && !combatText)
-    combat = parseCombat(statHeader);
+    combat = parseCombat(
+      statHeader
+        .replace(
+          /(?:^|\s)\*\s+[A-Z][^*%:]*?(?=\s+(?:DB|Build|Move|MP|Luck|HP)\b)/g,
+          " ",
+        )
+        .replace(
+          /\b(?:STR|CON|SIZ|DEX|INT|APP|POW|EDU|SAN|Sanity|HP|DB|Build|Move|MP|Luck)\s*:?\s*(?:[+-]?(?:\d*[dD]\d+(?:[+-]\d+)?|\d+(?:\/\d+)?)\+?\*?\.?(?=\s|$)|none\b\.?|n\/a\b)/gi,
+          " ",
+        )
+        .replace(/\b(?:Damage\s+Bonus|Statistics)\b\s*:?/g, " "),
+    );
   // Languages are just skills in CoC7. Parse the inline skills and any dedicated
   // "Languages:" section, then merge them into one map with canonical
   // "Language (X)" names, so a language lands in the same place regardless of
@@ -1516,12 +1627,22 @@ function parseBlock(
     // SORCERER" — its descriptor kept apart), then to the name in their
     // Sanity loss line ("... to see the Abomination").
     const heading = name ? null : headingName(sectionHeading);
+    const fromSanity =
+      name || heading?.name ? null : nameFromSanityLoss(sanityLoss);
+    const trailing =
+      name || heading?.name || fromSanity
+        ? null
+        : trailingNameHeading(printedBody);
     return [
       {
         name:
-          name || heading?.name || nameFromSanityLoss(sanityLoss) || "Unknown",
-        age,
-        description: description || (heading?.name ? heading.description : ""),
+          name || heading?.name || fromSanity || trailing?.name || "Unknown",
+        age: age ?? trailing?.age ?? null,
+        description:
+          description ||
+          (heading?.name ? heading.description : "") ||
+          trailing?.description ||
+          "",
         characteristics: characteristicsForColumn(cols, 0),
         derived: derivedForColumn(cols, 0),
         attacksPerRound,
@@ -1781,7 +1902,16 @@ function tokenizeStatHeader(header: string): Map<string, string[]> {
     // punctuation is neutral: "DB : +1D4", a footnote marker "INT * 50", or the
     // "/" between a creature's two forms' values "Move: 8 (leech) / 6 (host)".
     if (current && isValueToken(token)) result.get(current)!.push(token);
-    else if (!/^[:.,;/*]+$/.test(token)) current = null;
+    // A value closing its sentence ("Damage Bonus : +1D4." — Orient Express)
+    // is the label's last value: keep it, then end the run.
+    else if (
+      current &&
+      /[.,;]$/.test(token) &&
+      isValueToken(token.replace(/[.,;]+$/, ""))
+    ) {
+      result.get(current)!.push(token.replace(/[.,;]+$/, ""));
+      current = null;
+    } else if (!/^[:.,;/*]+$/.test(token)) current = null;
   }
   return result;
 }
@@ -1789,6 +1919,7 @@ function tokenizeStatHeader(header: string): Map<string, string[]> {
 function isValueToken(token: string): boolean {
   return (
     /^[+-]?\d{1,3}\*?$/.test(token) || // 40, -2, 32*
+    /^\d{1,3}\+$/.test(token) || // 99+ (an open-ended EDU — Orient Express)
     /^\d{1,3}(?:,\d{3})+\*?$/.test(token) || // 1,750 (the Black Sphinx's SIZ)
     /^[+-]?\d*[dD]\d+(?:[+-]\d+)?$/.test(token) || // +1D4, 1D10+5
     token === "-" || // em/en dash (N/A)
@@ -1833,7 +1964,10 @@ function characteristicsForColumn(
     if (!values || values[j] === undefined) continue;
     const raw = values[j];
     const marked = raw.includes("*");
-    const num = raw.replace(/\*/g, "").replace(/,/g, "");
+    const num = raw
+      .replace(/\*/g, "")
+      .replace(/,/g, "")
+      .replace(/(\d)\+$/, "$1");
     out[label] = {
       value: /^-?\d+$/.test(num) ? Number(num) : null,
       raw,
@@ -2899,6 +3033,42 @@ function nameFromSanityLoss(sanityLoss: string | null): string | null {
   return name[0].toUpperCase() + name.slice(1);
 }
 
+// Name particles a kerning repair must not glue to the next word.
+const NAME_PARTICLES = new Set([
+  "DE",
+  "DA",
+  "DI",
+  "DU",
+  "LA",
+  "LE",
+  "EL",
+  "AL",
+  "ST",
+]);
+
+// An Orient Express pre-generated investigator sheet reads its two columns out
+// of order: the stats and prose come first, then — after the prose's last
+// sentence — the caps name heading over the sheet's empty boxes ("COLONEL NA
+// THANIEL R. MILLER Age 42, Military Attaché Notes:" / "… Skills Languages" /
+// "… Personal Description - …"). A heading with a stat line after it is that
+// NPC's own, not this block's. Kerning may split a caps word ("NA THANIEL"); a
+// short undotted fragment that is not a name particle is joined to the next.
+function trailingNameHeading(
+  body: string,
+): { name: string; age: number; description: string } | null {
+  const matches = [
+    ...body.matchAll(
+      /(?<=[.!?"]\s+)((?:[A-Z][A-Z.'-]*\s+){1,5}[A-Z][A-Z'-]+)\s+Age\s+(\d{1,3}),\s*([^:.]{1,60}?)\s+(?=Notes\s*:|Skills\b|Languages\b|Personal Description\b)/g,
+    ),
+  ];
+  const m = matches.at(-1);
+  if (!m || /\bSTR\s*:?\s*\d/.test(body.slice(m.index))) return null;
+  const name = m[1].replace(/\b([A-Z]{1,2})\s+(?=[A-Z]{3,}\b)/g, (all, frag) =>
+    NAME_PARTICLES.has(frag) ? all : frag,
+  );
+  return { name, age: Number(m[2]), description: clean(m[3]) };
+}
+
 // The "Attacks per round" value from a Combat section, e.g. "1",
 // "up to 4 (1D4 tendril lash or 1 consume)", or a dice/prose count like
 // "1D8 bites per target" / "1 per two rounds (energy blast)". The count is a
@@ -3017,7 +3187,10 @@ function parseCombat(text: string): CombatEntry[] {
   // comma and a lowercase clause. Such a row bounds the damage before it.
   const maneuverName = String.raw`(?!DB\b)(?!\d)[A-Z][a-z][A-Za-z/'’-]*(?:\s[A-Z][a-z][A-Za-z/'’-]*){0,2}`;
   const maneuverRow = String.raw`${maneuverName}(?:\s*\([^),]*\))?\s*,\s*[a-z]`;
-  const damage = String.raw`(.+?)(?=\s+${nextAttack}|\s+${autoAttack}|\s+${maneuverRow}|\s+${dodgeStop}|\s+[•·●⁃]|(?<=\*)\s+\*|\.(?:\s|$)|${proseComma}|$)`;
+  // An ALL-CAPS heading run ("DANCE OF THE GELIN Cost : …", a spell set right
+  // after the last attack — Orient Express) starts a new section.
+  const capsHeading = String.raw`[A-Z][A-Z'’-]{3,}(?:\s+[A-Z][A-Z'’-]*)+(?=\s|$)`;
+  const damage = String.raw`(.+?)(?=\s+${nextAttack}|\s+${autoAttack}|\s+${maneuverRow}|\s+${dodgeStop}|\s+[•·●⁃]|(?<=\*)\s+\*|\s+${capsHeading}|\.(?:\s|$)|${proseComma}|$)`;
   // A maneuver profile carries a prose effect instead of "damage X" after its
   // "(half/fifth)" ("Garrote 45% (22/9), mnvr. to escape or suffer 1D6 damage
   // per round"). Capture that clause as the note. It runs to the next attack /
@@ -3223,6 +3396,19 @@ function splitDamageNote(raw: string | undefined): {
   ) {
     damage = effect[1];
     parts.unshift(clean(effect[2]));
+  }
+  // A footnote the attack's "*" points at ("1D3 + draining * Leech-like
+  // tentacles …"), or a sentence about the weapon after its dice ("1D10 + 1D4
+  // Haragrim's sword is of magic metal …"), is the note too.
+  const footnote = /^(\d*[dD]\d+.*?\S)\s+\*+\s*([A-Za-z].*)$/.exec(damage);
+  const sentence =
+    /^([+-]?\d*[dD]\d+(?:\s*[+-]\s*(?:\d*[dD]\d+|\d+|DB))*)\s+([A-Z][a-z'’]+(?:\s+\S+){3,})$/.exec(
+      damage,
+    );
+  const prose = footnote ?? sentence;
+  if (prose && !/\d*[dD]\d+|%/.test(prose[2])) {
+    damage = prose[1];
+    parts.unshift(clean(prose[2]));
   }
 
   return {
@@ -3542,6 +3728,18 @@ function normalizeLabels(text: string): string {
       .replace(/\bAverage\s+Magic\s+Points?(?=\s*:)/gi, "MP")
       .replace(/\bMagic\s+Points?(?=\s*:)/gi, "MP")
       .replace(/\bHit\s+Points?(?=\s*:)/gi, "HP")
+      // Orient Express spells the characteristic out: "EDU 93 Sanity 75".
+      // Not a Sanity-loss roll ("Sanity 0/1D6").
+      .replace(/\bSanity(?=\s*:?\s*\d{1,3}\*?(?![\d/]))/g, "SAN")
+      // A sign set apart from its bonus ("DB : + 1D4").
+      .replace(/\bDB(\s*:?\s*)([+-])\s+(?=\d)/g, "DB$1$2")
+      // A die count set apart from its die ("+1 D4", "1 D10 + 2") would leave
+      // "D4" read as the start of the next attack's name.
+      .replace(/\b(\d{1,2})\s+D(\d{1,3})\b/g, "$1D$2")
+      // Kerning that splits "EDU" off its label ("APP 50E DU 45") or drops its
+      // last letter ("ED 99+") — Orient Express.
+      .replace(/\b(\d{1,3})E\s+DU(?=\s+\d)/g, "$1 EDU")
+      .replace(/\bED(?=\s+\d{1,3}\+?\s)/g, "EDU")
   );
 }
 
@@ -3564,6 +3762,7 @@ const STAT_BLOCK_LABELS = new Set(
     "Hit",
     "Points",
     "Bonus",
+    "Magic",
   ].map((l) => l.toUpperCase()),
 );
 
@@ -3571,6 +3770,11 @@ function isStatBlockToken(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
   if (STAT_BLOCK_LABELS.has(t.toUpperCase())) return true;
+  // A spelled-out label set as one run ("Damage Bonus", "Magic Points :" —
+  // Orient Express), every word of it a stat-block label.
+  const words = t.replace(/\s*:$/, "").toUpperCase().split(/\s+/);
+  if (words.length > 1 && words.every((w) => STAT_BLOCK_LABELS.has(w)))
+    return true;
   // Innsmouth boxes its pulp variant under a "Pulp Modification Pulp Talents"
   // header run — once per NPC, so it repeats like furniture but is a section.
   if (/\bPulp (?:Combat|Talents)\b/.test(t)) return true;
@@ -3581,6 +3785,16 @@ function isStatBlockToken(text: string): boolean {
   if (/^[+-]?\d*[dD]\d+(?:[+-]\d+)?$/.test(t)) return true;
   if (t === "-" || t === "?" || t === "%" || /^n\/a$/i.test(t)) return true;
   if (/^\(\d+\/\d+\)$/.test(t)) return true;
+  // Orient Express sets whole stat fragments at a non-body size, and the
+  // common ones repeat on every page: an attack/skill profile ("Dodge 30%
+  // (15/6)", "Brawl 25% (12/5), damage 1D3"), a label's ": +1D4" value, a
+  // lone ":", an "Attacks per round" / "Languages" label, or an "ff" ligature
+  // split out of a word ("Sta" "ff").
+  if (/\d+%\s*\(\d+\/\d+\)/.test(t)) return true;
+  if (/^:\s*[+-]?(?:\d+|\d*[dD]\d+(?:[+-]\d+)?)\.?$/.test(t)) return true;
+  if (t === ":") return true;
+  if (/^(?:Attacks per round|Languages?)$/i.test(t)) return true;
+  if (/^(?:ff?[il]?|fi|fl)$/.test(t)) return true;
   return false;
 }
 
@@ -3630,6 +3844,9 @@ interface RawItem {
   font: string;
   height: number;
   eol: boolean;
+  x: number; // baseline start / end and baseline height, in page units
+  end: number;
+  y: number;
 }
 
 async function processPage(
@@ -3643,13 +3860,19 @@ async function processPage(
       str?: string;
       fontName?: string;
       height?: number;
+      width?: number;
       hasEOL?: boolean;
+      transform?: number[];
     };
+    const x = item.transform?.[4] ?? 0;
     return {
       str: item.str ?? "",
       font: item.fontName ?? "",
       height: Math.round((item.height ?? 0) * 10) / 10,
       eol: item.hasEOL ?? false,
+      x,
+      end: x + (item.width ?? 0),
+      y: item.transform?.[5] ?? 0,
     };
   });
 }
@@ -3694,9 +3917,25 @@ function parseActors(pageItems: RawItem[][]): CocCharacter[] {
   }[] = [];
   let newline = true;
   let page = 0;
+  // Whether `it` continues the word `prev` ended: kerned capitals split one
+  // word across abutting items ("PA" "TRICK", "MARGRA" "VE" — Orient Express),
+  // which a joining space would break apart. Abutting: same baseline, a gap
+  // under a tenth of the font size (a kern pulls it negative: "W" overlaps
+  // "ALTER"), and no whitespace at the seam.
+  const continuesWord = (prev: RawItem | null, it: RawItem): boolean =>
+    !!prev &&
+    it.height > 0 &&
+    Math.abs(it.y - prev.y) < 0.5 &&
+    it.x - prev.end < it.height * 0.1 &&
+    it.x - prev.end > -it.height * 0.5 &&
+    /\p{L}$/u.test(prev.str) &&
+    /^\p{L}/u.test(it.str);
   for (const items of pageItems) {
     page++;
+    let prevItem: RawItem | null = null;
     for (const it of items) {
+      const joined = !newline && continuesWord(prevItem, it);
+      prevItem = it;
       const text = normalizeText(it.str);
       // A period the font could not map ("Dr �   Rafael Gomez") arrives as a
       // lone replacement character after a title abbreviation; keep the period.
@@ -3718,7 +3957,7 @@ function parseActors(pageItems: RawItem[][]): CocCharacter[] {
           last.font === it.font &&
           last.height === it.height
         ) {
-          last.text += " " + text;
+          last.text += (joined ? "" : " ") + text;
         } else {
           runs.push({ font: it.font, height: it.height, text, newline, page });
         }
@@ -3772,6 +4011,20 @@ function parseActors(pageItems: RawItem[][]): CocCharacter[] {
     if (run.height !== bodyHeight)
       repeats.set(run.text, (repeats.get(run.text) ?? 0) + 1);
   }
+  // Orient Express sets its running headers ("Strangers on the Train",
+  // "through the alps") at body height, in their own font. Such a line repeats
+  // dozens of times as a whole run, unlike prose; a bold skill name in prose
+  // ("Spot Hidden") repeats too but is shorter.
+  const bodyRepeats = new Map<string, number>();
+  for (const run of runs) {
+    if (run.height === bodyHeight && run.newline)
+      bodyRepeats.set(run.text, (bodyRepeats.get(run.text) ?? 0) + 1);
+  }
+  const isRunningHeader = (run: { text: string; newline: boolean }) =>
+    run.newline &&
+    (bodyRepeats.get(run.text) ?? 0) >= 20 &&
+    run.text.split(" ").length >= 3 &&
+    !/[\d:%]/.test(run.text);
   let prev: { text: string } | null = null;
   let prev2: { text: string } | null = null;
   let prevWasValue = false;
@@ -3784,7 +4037,7 @@ function parseActors(pageItems: RawItem[][]): CocCharacter[] {
     height: number;
     newline: boolean;
   }) => {
-    if (run.height === bodyHeight) return false;
+    if (run.height === bodyHeight) return isRunningHeader(run);
     if (/^[\d ]+$/.test(run.text))
       return run.newline || !(afterStatLabel() || prevWasValue);
     if (isStatBlockToken(run.text)) return false;
