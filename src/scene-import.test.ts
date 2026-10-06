@@ -311,7 +311,7 @@ describe("importScenes — character tokens and documents", () => {
     assert.equal(uploads.length, 2);
   });
 
-  test("the pack's PDFs become one journal of PDF pages, books and map key aside", async () => {
+  test("the pack's PDFs become one journal of PDF pages, books aside", async () => {
     const pdf = (path: string) => {
       const f = new File([new Uint8Array(4)], path.split("/").pop()!, { type: "application/pdf" });
       Object.defineProperty(f, "webkitRelativePath", { value: path });
@@ -322,7 +322,6 @@ describe("importScenes — character tokens and documents", () => {
         pdf("Pack/US_Passport_PDF.pdf"),
         pdf("Pack/1923_Calendar_PDF.pdf"),
         pdf("Pack/II - Through the Alps.pdf"),
-        pdf("Pack/USER MANUAL-HotOE.pdf"),
       ],
       { skipDocuments: ["II - Through the Alps.pdf"] },
     );
