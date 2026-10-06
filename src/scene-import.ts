@@ -142,8 +142,12 @@ class Uploader {
   // pointing at a file that never arrived would show no image.
   async upload(file: File, folders: string[]): Promise<string> {
     const dir = [this.base, ...folders.map(slug)].join("/");
-    await this.#ensure(dir);
     const named = new File([file], slug(file.name), { type: file.type });
+    // A re-import skips files already served whole from the same place.
+    const target = `${dir}/${named.name}`;
+    if (this.source === "data" && !(await servedProblem(target, file.size)))
+      return target;
+    await this.#ensure(dir);
     const response = await filePicker().upload(this.source, dir, named, {}, {
       notify: false,
     });
@@ -237,6 +241,19 @@ async function removeReplaced(
 
 // The Scene document for a planned map whose image was uploaded to `src`.
 // A key-documented pack measures its cells in metres (1 cell ≈ 1 m).
+// The id Foundry 14 gives a scene's own first Level.
+const DEFAULT_LEVEL_ID = "defaultLevel0000";
+
+function levelName(): string {
+  try {
+    const name = (foundry as any).documents?.Level?.defaultName?.();
+    if (name) return name;
+  } catch {
+    // Older cores have no Level document.
+  }
+  return "Level 1";
+}
+
 export function sceneData(
   plan: ScenePlan,
   src: string,
@@ -250,7 +267,14 @@ export function sceneData(
     width: plan.width,
     height: plan.height,
     padding: 0,
+    // Foundry 14 keeps the image on the scene's first Level and strips the
+    // old top-level field before it could carry it over; earlier versions
+    // have no Levels and read `background`. No thumbnail: rendering one per
+    // map would load hundreds of large textures during the import.
     background: { src },
+    levels: [{ _id: DEFAULT_LEVEL_ID, name: levelName(), background: { src } }],
+    initialLevel: DEFAULT_LEVEL_ID,
+    thumb: null,
     grid: {
       type: plan.grid.gridless
         ? (CONST.GRID_TYPES?.GRIDLESS ?? 0)

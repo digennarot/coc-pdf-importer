@@ -137,6 +137,18 @@ describe("importScenes", () => {
       hall.background.src,
       "worlds/test-world/coc-pdf-importer/pack/chapter-01/01-great-hall.webp",
     );
+    // Foundry 14 shows the image of the scene's first Level.
+    assert.deepEqual(hall.levels, [
+      {
+        _id: "defaultLevel0000",
+        name: "Level 1",
+        background: {
+          src: "worlds/test-world/coc-pdf-importer/pack/chapter-01/01-great-hall.webp",
+        },
+      },
+    ]);
+    assert.equal(hall.initialLevel, "defaultLevel0000");
+    assert.equal(hall.thumb, null);
     assert.deepEqual(hall.grid, { type: 1, size: 140 });
     const chapter = folders.find((f) => f.name === "Chapter 01");
     assert.equal(chapter.type, "Scene");
@@ -240,6 +252,27 @@ describe("importScenes", () => {
       delete (globalThis as any).ForgeVTT;
     }
     assert.deepEqual(sources, ["forgevtt"]);
+  });
+
+  test("a re-import does not upload files the server already holds whole", async () => {
+    const pick = () => [
+      webp("Pack/Ch/01-Hall.webp", 2800, 2100),
+      webp("Pack/Ch/02-Crypt.webp", 2800, 2100),
+    ];
+    await importScenes(pick());
+    // The crypt's copy on the server is cut short: that one goes up again.
+    served.set("worlds/test-world/coc-pdf-importer/pack/ch/02-crypt.webp", 7);
+    uploads = [];
+    const res = await importScenes(pick());
+    assert.equal(res.created, 2);
+    assert.deepEqual(uploads.map((u) => u.name), ["02-crypt.webp"]);
+    assert.deepEqual(
+      scenes.map((s) => s.levels[0].background.src),
+      [
+        "worlds/test-world/coc-pdf-importer/pack/ch/01-hall.webp",
+        "worlds/test-world/coc-pdf-importer/pack/ch/02-crypt.webp",
+      ],
+    );
   });
 
   test("a re-import replaces the same-named scene in its folder", async () => {
