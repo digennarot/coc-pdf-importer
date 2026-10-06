@@ -235,8 +235,8 @@ Without the worker shim, text extraction silently truncates glyph runs.
 
 Every push to `main` is released. A push that does not bump the version itself
 gets the next patch version automatically (`[minor]` / `[major]` in a pushed
-commit message picks the next minor / major instead; `[skip release]` skips
-it): the workflow commits the bump as `Release <version>` to `main`. To choose
+commit's subject line picks the next minor / major instead; `[skip release]`
+skips it; markers in a message body are ignored): the workflow commits the bump as `Release <version>` to `main`. To choose
 the version by hand, push your own `Release <version>` commit (see
 `npm run release`). The release workflow then tags the version, builds the
 module, and creates the

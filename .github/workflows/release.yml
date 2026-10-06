@@ -22,9 +22,10 @@ name: Release
 #
 # A push to main that does not bump the version itself gets one automatically:
 # the next patch version, or the next minor/major when a pushed commit message
-# says "[minor]" / "[major]". The bump is committed as "Release <version>" by
+# subject line says "[minor]" / "[major]" (bodies are ignored, so a message
+# can mention the markers). The bump is committed as "Release <version>" by
 # tools/release.js and pushed to main (a push made with GITHUB_TOKEN does not
-# re-trigger workflows). "[skip release]" in a pushed commit message skips it.
+# re-trigger workflows). "[skip release]" in a pushed commit subject skips it.
 
 on:
   push:
@@ -46,10 +47,10 @@ jobs:
           fetch-depth: 0 # full history + tags: needed for the changelog
 
       - name: Bump the version
-        env:
-          MESSAGES: ${{ join(github.event.commits.*.message, '\n') }}
         run: |
           set -euo pipefail
+          # The subject line of each pushed commit.
+          MESSAGES=$(jq -r '.commits[]?.message | split("\n")[0]' "$GITHUB_EVENT_PATH")
           VERSION=$(node -p "require('./module.json').version")
           PREV=$(git tag --merged HEAD --list '[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)
           if [ "$VERSION" != "$PREV" ]; then
