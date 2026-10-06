@@ -4,7 +4,15 @@
 import { describe, test } from "node:test";
 import assert from "node:assert";
 import {
+  characterTokenCandidates,
+  characterTokenName,
   creatureKey,
+  documentTitle,
+  isCharacterToken,
+  isDocumentPdf,
+  matchCharacterTokens,
+  personMatch,
+  personWords,
   creatureTokenName,
   handoutJournal,
   imageSize,
@@ -247,5 +255,97 @@ describe("handouts and creature tokens", () => {
     assert.deepEqual(tokenCells({ width: 2730, height: 1890 }, [210]), { width: 13, height: 9 });
     assert.deepEqual(tokenCells({ width: 560, height: 560 }, [210, 140]), { width: 4, height: 4 });
     assert.deepEqual(tokenCells({ width: 500, height: 250 }, [210]), { width: 2, height: 1 });
+  });
+});
+
+describe("character tokens", () => {
+  const T = "Pack/xx-Tokens/HOE-TOKENS-WEBP/TOK-Chapter 3-1893";
+  test("tokens folders hold them; creature tokens, map cut-outs and frames do not", () => {
+    assert.ok(isCharacterToken(`${T}/NPC-CH03-Train-Egorov.webp`));
+    assert.ok(isCharacterToken("Pack/xx-Tokens/HOE-PC-TOKENS-WEBP/PC-1923/PC-1923-Grace Murphy.webp"));
+    assert.ok(!isCharacterToken("Pack/Ch 5/02-CREATURES TOKENS/TOK-Shantak-2730x1890.webp"));
+    assert.ok(!isCharacterToken("Pack/Ch 3/01-MAPS/WEBP/TOK-ROOF-Nisra-DAY-1120x1120.webp"));
+    assert.ok(!isCharacterToken("Pack/xx-Tokens/HOE-TOKENS-WEBP/FRAME/TOK-Frame-330.webp"));
+    assert.ok(!isCharacterToken("Pack/xx-Tokens/HOE-PC-TOKENS-WEBP/PC-1923/PC-1923-Token frame.webp"));
+  });
+
+  test("a token's name drops its chapter prefix and variant letter", () => {
+    assert.deepEqual(characterTokenName(`${T}/NPC-CH03-Train-Ilsa von Hofler A.webp`), {
+      name: "Train-Ilsa von Hofler",
+      variant: "A",
+    });
+    assert.deepEqual(characterTokenName("P/xx-Tokens/NPC-CH19-John Milton-B.webp"), {
+      name: "John Milton",
+      variant: "B",
+    });
+    assert.deepEqual(characterTokenName("P/xx-Tokens/NPC-Strangers-Simon Johns.webp"), {
+      name: "Simon Johns",
+      variant: "",
+    });
+    assert.deepEqual(characterTokenName("P/xx-Tokens/Selim Makryat-1893.webp"), {
+      name: "Selim Makryat-1893",
+      variant: "",
+    });
+    assert.deepEqual(characterTokenCandidates("Constantinople-Barlas Demir"), [
+      "Constantinople-Barlas Demir",
+      "Constantinople",
+      "Barlas Demir",
+    ]);
+  });
+
+  test("names reduce to the words that identify a person", () => {
+    assert.deepEqual(personWords("Elizabeth 'Ellie' Myers"), ["elizabeth", "myer"]);
+    assert.deepEqual(personWords("Professor Julius Smith 2"), ["juliu", "smith"]);
+    assert.deepEqual(personWords("Selim Makryat-1893"), ["selim", "makryat", "1893"]);
+    assert.deepEqual(personWords("Col. Andrew Herring (Ret.)"), ["andrew", "herring"]);
+    assert.deepEqual(personWords("Martinus de L'Isles"), personWords("Martinus de l Isles"));
+    assert.deepEqual(personWords("Lars Färber"), ["lar", "farber"]);
+  });
+
+  test("how a token name fits an actor's", () => {
+    assert.equal(personMatch("Dr Julius Smith", "Dr. Julius Smith"), 3);
+    assert.equal(personMatch("Mehmey Makryat", "Mehmet Makryat"), 3); // the pack's typo
+    assert.equal(personMatch("Hyeronimus Menkaph", "Hieronymus Menkaph"), 3);
+    assert.equal(personMatch("Cpt Roderick Barrington", "Captain Roderick Barrington, Bart"), 3);
+    assert.equal(personMatch("Duc Jean Floressas", "Duc Jean Floressas des Esseintes"), 2);
+    assert.equal(personMatch("Barlas Demir", "Barlas"), 1);
+    assert.equal(personMatch("Pr Ahmed Demir", "Professor Demir"), 1);
+    assert.equal(personMatch("Rana Demir", "Professor Demir"), 0); // untitled
+    assert.equal(personMatch("Countess Emmanuelle de Bruessy", "Count de Bruessy"), 0);
+    assert.equal(personMatch("Count Henri de Bruessy", "Count de Bruessy"), 2);
+    assert.equal(personMatch("Emile Soucard", "Emily"), 0); // first names match exactly
+  });
+
+  test("each actor gets its closest, unqualified, first-variant token", () => {
+    const P = "Pack/xx-Tokens/HOE-TOKENS-WEBP";
+    const m = matchCharacterTokens(
+      [
+        `${P}/TOK-Antagonist/Selim Makryat-1893.webp`,
+        `${P}/TOK-Chapter 16/NPC-CH16-Selim Makryat.webp`,
+        `${P}/TOK-Chapter 3/NPC-CH03-Train-Ilsa von Hofler B.webp`,
+        `${P}/TOK-Chapter 3/NPC-CH03-Train-Ilsa von Hofler A.webp`,
+        `${P}/TOK-Chapter 17/NPC-CH17-Countess Emmanuelle de Bruessy.webp`,
+        `${P}/TOK-Chapter 17/NPC-CH17-Count Henri de Bruessy.webp`,
+        `${P}/TOK-Chapter 1/NPC-CH01-Policeman.webp`,
+      ],
+      ["Selim Makryat", "Ilsa von Hofler", "Count de Bruessy", "Countess de Bruessy", "Sophie"],
+    );
+    assert.deepEqual(Object.fromEntries([...m].map(([n, p]) => [n, p.split("/").pop()])), {
+      "Selim Makryat": "NPC-CH16-Selim Makryat.webp",
+      "Ilsa von Hofler": "NPC-CH03-Train-Ilsa von Hofler A.webp",
+      "Count de Bruessy": "NPC-CH17-Count Henri de Bruessy.webp",
+      "Countess de Bruessy": "NPC-CH17-Countess Emmanuelle de Bruessy.webp",
+    });
+  });
+});
+
+describe("documents", () => {
+  test("a pack's PDFs other than its map key, titled from the file name", () => {
+    assert.ok(isDocumentPdf("Pack/US_Passport_PDF.pdf"));
+    assert.ok(!isDocumentPdf("Pack/USER MANUAL-HotOE.pdf"));
+    assert.ok(!isDocumentPdf("Pack/LP-1923.webp"));
+    assert.equal(documentTitle("Pack/European_Route_Map_Hi-Res_PDF1.pdf"), "European Route Map Hi-Res");
+    assert.equal(documentTitle("Pack/Sticker_Postcard_&_Simulacrum_Pack_PDF.pdf"), "Sticker Postcard & Simulacrum Pack");
+    assert.equal(documentTitle("Pack/VI - Handouts.pdf"), "VI - Handouts");
   });
 });

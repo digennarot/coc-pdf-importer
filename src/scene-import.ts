@@ -10,12 +10,16 @@ import {
   chapterCellSizes,
   creatureKey,
   creatureTokenName,
+  documentTitle,
   handoutJournal,
   imageSize,
+  isCharacterToken,
   isCreatureToken,
+  isDocumentPdf,
   isHandoutImage,
   isMapKeyManual,
   isSceneImage,
+  matchCharacterTokens,
   parseMapKey,
   planScenes,
   sceneName,
@@ -26,6 +30,8 @@ import type { ImageSize, MapKeyEntry, ScenePlan } from "./scenes.ts";
 export interface ImportScenesOptions {
   /** Called after each scene, journal or token, for a progress display. */
   onProgress?: (done: number, total: number) => void;
+  /** File names of PDFs imported as books, not to repeat as documents. */
+  skipDocuments?: string[];
 }
 
 export interface ImportScenesResult {
@@ -34,7 +40,9 @@ export interface ImportScenesResult {
   scenes: any[];
   journals: number;
   handouts: number;
-  /** Actors given a creature token's art. */
+  /** PDF pages in the documents journal. */
+  documents: number;
+  /** Actors given a creature or character token's art. */
   tokens: number;
   /** Creature tokens no imported actor matched (by token name). */
   unmatchedTokens: string[];
@@ -98,10 +106,17 @@ function filePicker(): FoundryFilePicker {
   return fp;
 }
 
+// The file storage uploads go to: The Forge serves user data from its own
+// "forgevtt" storage, every other host from the server's "data" folder.
+export function uploadSource(): string {
+  return (globalThis as any).ForgeVTT?.usingTheForge ? "forgevtt" : "data";
+}
+
 // Uploads into the world's data folder, creating each directory once.
 class Uploader {
   #made = new Set<string>();
   base: string;
+  source = uploadSource();
   constructor(base: string) {
     this.base = base;
   }
@@ -113,23 +128,32 @@ class Uploader {
       path = path ? `${path}/${part}` : part;
       if (this.#made.has(path)) continue;
       try {
-        await fp.browse("data", path);
+        await fp.browse(this.source, path);
       } catch {
-        await fp.createDirectory("data", path, {});
+        await fp.createDirectory(this.source, path, {});
       }
       this.#made.add(path);
     }
   }
 
-  // Upload `file` under base/<slugged folders>; returns its data path.
+  // Upload `file` under base/<slugged folders>; returns its path. Foundry's
+  // FilePicker swallows upload errors (a rejected file, a proxy's "413 too
+  // large") and answers without a path, so that is a failure: a document
+  // pointing at a file that never arrived would show no image.
   async upload(file: File, folders: string[]): Promise<string> {
     const dir = [this.base, ...folders.map(slug)].join("/");
     await this.#ensure(dir);
     const named = new File([file], slug(file.name), { type: file.type });
-    const response = await filePicker().upload("data", dir, named, {}, {
+    const response = await filePicker().upload(this.source, dir, named, {}, {
       notify: false,
     });
-    return (response && response.path) || `${dir}/${named.name}`;
+    if (!response || !response.path)
+      throw new Error(
+        `the server did not accept "${file.name}" ` +
+          `(${(file.size / 1048576).toFixed(1)} MB) into ${this.source}:${dir}; ` +
+          "check the upload permission and any proxy upload size limit",
+      );
+    return response.path;
   }
 }
 
@@ -213,8 +237,18 @@ function creatureLike(actor: FoundryActor): boolean {
   return !(Number(c.app?.value) > 0 && Number(c.edu?.value) > 0);
 }
 
-// Import the picked folder's maps, handouts and creature tokens. Any other
-// file is skipped.
+// The journal holding a pack's PDFs.
+const DOCUMENTS_JOURNAL = "Documents";
+
+// A file's folders within the picked folder's parent.
+const dirsOf = (path: string) => path.split("/").slice(0, -1);
+
+// Consecutive failed uploads, before any success, that stop the import.
+const ABORT_AFTER_FAILED_UPLOADS = 3;
+
+// Import the picked folder's maps, handouts, creature tokens, character
+// tokens and documents (its PDFs other than the map key and the books being
+// imported). Any other file is skipped.
 export async function importScenes(
   files: File[],
   options: ImportScenesOptions = {},
@@ -225,6 +259,7 @@ export async function importScenes(
     scenes: [],
     journals: 0,
     handouts: 0,
+    documents: 0,
     tokens: 0,
     unmatchedTokens: [],
   };
@@ -267,16 +302,49 @@ export async function importScenes(
       tokens.set(k, { path, name });
   }
 
-  const total = plans.length + journals.size + tokens.size;
+  // Character tokens (NPCs, pregenerated investigators), matched to the
+  // world's actors by name; an actor a creature token depicts keeps that.
+  const actors = game.actors?.filter(creatureLike) ?? [];
+  const creatureActors = new Set(
+    actors.filter((a) => tokens.has(creatureKey(a.name ?? ""))),
+  );
+  const people =
+    game.actors?.filter((a) => !creatureActors.has(a)) ?? [];
+  const matched = matchCharacterTokens(
+    [...byPath.keys()].filter(isCharacterToken),
+    people.map((a) => a.name ?? ""),
+  );
+  const byToken = new Map<string, FoundryActor[]>();
+  for (const actor of people) {
+    const path = matched.get(actor.name ?? "");
+    if (!path) continue;
+    if (!byToken.has(path)) byToken.set(path, []);
+    byToken.get(path)!.push(actor);
+  }
+
+  // Documents: one journal of PDF pages, in the picked folder's journal folder.
+  const skip = new Set(options.skipDocuments ?? []);
+  const documents = [...byPath.keys()]
+    .filter((p) => isDocumentPdf(p) && !skip.has(p.split("/").pop()!))
+    .sort();
+
+  const total =
+    plans.length + journals.size + tokens.size + byToken.size +
+    (documents.length ? 1 : 0);
   let done = 0;
   const step = () => options.onProgress?.(++done, total);
   const uploader = new Uploader(
     `worlds/${game.world?.id ?? "world"}/coc-pdf-importer`,
   );
 
+  // Stop when the first uploads all fail: the rest would fail the same way.
+  let uploaded = 0;
+  let uploadFailures = 0;
   for (const plan of plans) {
+    let src: string | null = null;
     try {
-      const src = await uploader.upload(byPath.get(plan.path)!, plan.folders);
+      src = await uploader.upload(byPath.get(plan.path)!, plan.folders);
+      uploaded++;
       const folder = await ensureFolderChain(plan.folders, "Scene");
       await removeReplaced(game.scenes, folder, plan.name);
       const scene = await Scene.create(
@@ -287,6 +355,10 @@ export async function importScenes(
     } catch (err) {
       result.failed++;
       console.error(`coc-pdf-importer: failed to import map "${plan.path}"`, err);
+      if (!src && !uploaded && ++uploadFailures >= ABORT_AFTER_FAILED_UPLOADS)
+        throw new Error(
+          `map upload failed, import stopped: ${(err as Error).message}`,
+        );
     }
     step();
   }
@@ -315,7 +387,6 @@ export async function importScenes(
     step();
   }
 
-  const actors = game.actors?.filter(creatureLike) ?? [];
   for (const [k, { path, name }] of tokens) {
     try {
       const matched = actors.filter((a) => creatureKey(a.name ?? "") === k);
@@ -348,6 +419,54 @@ export async function importScenes(
     }
     step();
   }
+  for (const [path, depicted] of byToken) {
+    try {
+      const src = await uploader.upload(byPath.get(path)!, dirsOf(path));
+      for (const actor of depicted) {
+        await actor.update({ img: src, "prototypeToken.texture.src": src });
+        result.tokens++;
+      }
+    } catch (err) {
+      result.failed++;
+      console.error(`coc-pdf-importer: failed to apply token "${path}"`, err);
+    }
+    step();
+  }
+
+  if (documents.length) {
+    const root = documents[0].split("/")[0];
+    try {
+      const pages = [];
+      for (const path of documents) {
+        try {
+          const src = await uploader.upload(byPath.get(path)!, [root, "documents"]);
+          pages.push({ name: documentTitle(path), type: "pdf", src });
+        } catch (err) {
+          result.failed++;
+          console.error(`coc-pdf-importer: failed to import document "${path}"`, err);
+        }
+      }
+      if (pages.length) {
+        const folder = await ensureFolderChain(
+          documents[0].includes("/") ? [root] : [],
+          "JournalEntry",
+        );
+        await removeReplaced(game.journal, folder, DOCUMENTS_JOURNAL);
+        await JournalEntry.create({
+          name: DOCUMENTS_JOURNAL,
+          folder: folder?.id ?? null,
+          pages,
+        });
+        result.journals++;
+        result.documents = pages.length;
+      }
+    } catch (err) {
+      result.failed++;
+      console.error("coc-pdf-importer: failed to create the documents journal", err);
+    }
+    step();
+  }
+
   if (result.unmatchedTokens.length)
     console.info(
       "coc-pdf-importer: creature tokens with no matching actor (import the books first):",

@@ -8,7 +8,7 @@
     "Form": {
       "Upload": "Choose files to upload",
       "Maps": "Choose a folder of maps",
-      "MapsHint": "Each map image in the folder becomes a Scene, in Scene folders mirroring its subfolders; each chapter's English handouts become a Journal Entry; creature tokens become the art of the imported creature actors they name (import the books first). A map pack's user manual in the folder supplies each map's grid size."
+      "MapsHint": "Each map image in the folder becomes a Scene, in Scene folders mirroring its subfolders; each chapter's English handouts become a Journal Entry; creature and character tokens become the art of the imported actors they name (import the books first); its other PDFs (props, player aids) become pages of a Documents journal. A map pack's user manual in the folder supplies each map's grid size."
     },
     "Progress": {
       "Title": "Import progress",
