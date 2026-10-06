@@ -4,7 +4,7 @@
 // test:integration`).
 import { describe, test } from "node:test";
 import assert from "node:assert";
-import { parseCocCharacters } from "./process.ts";
+import { dehyphenate, parseCocCharacters } from "./process.ts";
 
 describe("parseCocCharacters (unit)", () => {
   test("em-dash characteristics parse as null", () => {
@@ -2707,5 +2707,26 @@ describe("Orient Express stat blocks (unit)", () => {
     assert.equal(c.name, "Professor Harold 'Harry' Worth");
     assert.equal(c.age, 40);
     assert.equal(c.description, "British Archaeologist");
+  });
+});
+
+describe("dehyphenate (unit)", () => {
+  test("rejoins words split across a line", () => {
+    assert.equal(
+      dehyphenate("blocks attacks, de- flects missiles"),
+      "blocks attacks, deflects missiles",
+    );
+    assert.equal(
+      dehyphenate("Sur- geon and Medical Researcher"),
+      "Surgeon and Medical Researcher",
+    );
+    assert.equal(dehyphenate("Owner of Lux-Vis- ta"), "Owner of Lux-Vista");
+  });
+
+  test("keeps prefix compounds, suspended hyphens and bullets", () => {
+    assert.equal(dehyphenate("a non- combat posting"), "a non-combat posting");
+    assert.equal(dehyphenate("one- or two-handed"), "one- or two-handed");
+    assert.equal(dehyphenate("- Deep set eyes"), "- Deep set eyes");
+    assert.equal(dehyphenate("non-Earthly material"), "non-Earthly material");
   });
 });

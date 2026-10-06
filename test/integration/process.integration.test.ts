@@ -653,11 +653,12 @@ describe("Horror on the Orient Express — Through the Alps", () => {
   });
 
   test('a "SEX M F" row and an epigraph do not name a column table', () => {
-    assert.ok(byName(chars, "Diplomats Sarnathians Theophed"));
-    assert.ok(byName(chars, "Diplomats Sarnathians Besweet"));
+    assert.ok(byName(chars, "Sarnathians Theophed"));
+    assert.ok(byName(chars, "Sarnathians Besweet"));
     assert.ok(byName(chars, "Nightgaunts One"));
     assert.ok(byName(chars, "Shantaks Six"));
     assert.ok(chars.every((c) => !/^Sex |Kadath/.test(c.name)));
+    assert.ok(chars.every((c) => !/^Diplomats /.test(c.name)));
   });
 });
 
@@ -733,6 +734,17 @@ describe("Horror on the Orient Express — Constantinople & Consequences", () =>
     assert.ok(byName(chars, "Aziz Bin Nassar (Charles Drake)"));
     // A line-break hyphen inside the alias is rejoined.
     assert.ok(byName(chars, "Antonio Abella (AKA Angelo Minotti)"));
+  });
+
+  test("line-break hyphens are rejoined in every field", () => {
+    // The two printings differed only by "Lux-Vis- ta"; now one actor.
+    const milton = chars.filter((c) => c.name.startsWith("John Milton"));
+    assert.equal(milton.length, 1);
+    assert.equal(
+      milton[0].description,
+      "Owner of Lux-Vista and devoted worshipper of Nyarlathotep",
+    );
+    assert.ok(!/[a-z]- [a-z]/.test(JSON.stringify(chars)));
   });
 });
 

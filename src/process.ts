@@ -551,9 +551,63 @@ export function parseCocCharacters(
 
   return disambiguateNames(
     characters
-      .map((c) => ({ ...c, name: cleanActorName(c.name) }))
+      .map((c) => dehyphenateCharacter({ ...c, name: cleanActorName(c.name) }))
       .filter((c) => !isSpuriousActor(c)),
   );
+}
+
+// A word hyphenated across a line ("de- flects", "Sur- geon"); the hyphen and
+// space are dropped. A real compound broken after its hyphen keeps it when the
+// first part is a common prefix ("non- combat" -> "non-combat"), and a
+// suspended hyphen ("one- or two-handed") is left alone.
+const HYPHEN_PREFIX = /^(?:non|self|half|well|ill|semi|anti|quasi)$/i;
+const SUSPENDED_HYPHEN = /^(?:or|and|to|nor)$/;
+
+export function dehyphenate(text: string): string {
+  return text.replace(/\b([A-Za-z]+)- ([a-z]+)\b/g, (whole, head, tail) =>
+    SUSPENDED_HYPHEN.test(tail)
+      ? whole
+      : HYPHEN_PREFIX.test(head)
+        ? `${head}-${tail}`
+        : head + tail,
+  );
+}
+
+function dehyphenateCombat(entry: CombatEntry): CombatEntry {
+  return {
+    ...entry,
+    name: dehyphenate(entry.name),
+    note: entry.note === null ? null : dehyphenate(entry.note),
+  };
+}
+
+function dehyphenateCharacter(c: CocCharacter): CocCharacter {
+  const opt = (s: string | null) => (s === null ? null : dehyphenate(s));
+  return {
+    ...c,
+    name: dehyphenate(c.name),
+    description: dehyphenate(c.description),
+    combat: c.combat.map(dehyphenateCombat),
+    spells: c.spells.map(dehyphenate),
+    sanityLoss: opt(c.sanityLoss),
+    armor: opt(c.armor),
+    background: c.background.map((b) => ({
+      title: dehyphenate(b.title),
+      text: dehyphenate(b.text),
+    })),
+    items: c.items.map(dehyphenate),
+    notes: c.notes.map(dehyphenate),
+    ...(c.pulp && {
+      pulp: {
+        ...c.pulp,
+        combat: c.pulp.combat.map(dehyphenateCombat),
+        talents: c.pulp.talents.map((t) => ({
+          name: dehyphenate(t.name),
+          description: dehyphenate(t.description),
+        })),
+      },
+    }),
+  };
 }
 
 // Two profiles of one creature share its name ("Ssathasaa, serpent person" and
@@ -1759,7 +1813,7 @@ function parseBlock(
   // Dark Mistress").
   let groupName =
     (isFurnitureName(windowGroup) ? "" : windowGroup) ||
-    titleCaseTitle(name) ||
+    titleCaseTitle(capsNameTail(name)) ||
     groupNameFromPrefix(sectionHeading);
   // Only when the name itself is recovered from the font-size heading is its
   // trailing descriptor a reliable group description; otherwise a per-member
