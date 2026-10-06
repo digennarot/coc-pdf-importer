@@ -106,7 +106,7 @@ Appendices B–D), or that print appendix-style entries inline in their chapters
 1. Install the module from
 
    ```console
-   https://github.com/dgladkov/coc-pdf-importer/releases/latest/download/module.json
+   https://github.com/digennarot/coc-pdf-importer/releases/latest/download/module.json
    ```
 
 2. Go to Settings → Game Settings → Call of Cthulhu PDF Importer → Import button
