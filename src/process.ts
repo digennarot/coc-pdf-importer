@@ -689,6 +689,8 @@ function cleanActorName(name: string): string {
   // A possessive set as its own run leaves a space before it ("Bill Buckley
   // 's Ghost", "M'Weru 's Bodyguards").
   cleaned = cleaned.replace(/\s+(['’]s)\b/g, "$1");
+  // A word hyphenated across a line ("Angelo Mi- notti").
+  cleaned = cleaned.replace(/\b([A-Za-z]+)- ([a-z]+)\b/g, "$1$2");
   cleaned = clean(cleaned);
   cleaned = capsNameTail(cleaned);
   // Some books print every stat-block name in ALL CAPS ("BILLY THE KID");
@@ -715,12 +717,19 @@ const NAME_PARTICLE = /^(?:de|des|del|della|di|da|du|von|van|der|la|le)$/;
 const HONORIFIC =
   /^(?:Dr|Mr|Mrs|Ms|Miss|Sir|Lady|Lord|Don|Doña|Count|Countess|Baron|Baroness|Professor|Prof|Captain|Capt|Father|Colonel|Col|Major|Lieutenant|Lt)\.?$/;
 function capsNameTail(name: string): string {
+  // A trailing alias ("Statistics MEHMET MAKRYAT (Soucard, et al.)") is kept
+  // as printed after the caps name.
+  const alias = /^(.*\S)\s+(\([^()]*\))$/.exec(name);
+  if (alias) {
+    const head = capsNameTail(alias[1]);
+    return head === alias[1] ? name : `${head} ${alias[2]}`;
+  }
   const tokens = name.split(" ");
   const bare = (t: string) => t.replace(/^["'“(]+|["'”),]+$/g, "");
   // A caps word: two or more letters, all capitals, or a small-caps glitch
   // ("LaVERGE", "JEAN-LOUIs").
   const capsWord = (t: string) =>
-    /^[A-Z][A-Z.'’-]*[A-Z.]$/.test(bare(t)) ||
+    /^[A-Z][A-ZÀ-ÖØ-Þ.'’-]*[A-Z.]$/.test(bare(t)) ||
     /^[A-Z][a-z]{1,2}[A-Z]{3,}$/.test(bare(t)) ||
     /^[A-Z][A-Z'’-]{3,}[a-z]$/.test(bare(t));
   const inName = (t: string) =>
@@ -739,8 +748,15 @@ function capsNameTail(name: string): string {
   if (prefix.length && words.length === 1 && bare(words[0]).length < 4)
     return name;
   if (prefix.length && !/[a-z]/.test(prefix.join(" "))) return name;
+  // A surname particle set in lowercase keeps its inner capital ("LaVERGE" ->
+  // "LaVerge", "DeGUERRE" -> "DeGuerre"); any other glitch ("MeRISSA") is just
+  // a caps word.
   const cased = titleCaseTitle(
     tail.map((t) => (capsWord(t) ? t.toUpperCase() : t)).join(" "),
+  ).replace(/\b(La|Le|De|Di|Du|Da|Mac)([A-Z][a-z]{2,})\b/gi, (all, p, rest) =>
+    tail.some((t) => bare(t) === p + rest.toUpperCase())
+      ? p + rest.charAt(0).toUpperCase() + rest.slice(1).toLowerCase()
+      : all,
   );
   if (prefix.length === 1 && HONORIFIC.test(prefix[0]))
     return `${prefix[0]} ${cased}`;
@@ -1404,9 +1420,13 @@ function extractName(pre: string): string {
   const strict = collectName(pre, false);
   // Strict mode stops at a caps word, so a caps name with a mixed-case
   // qualifier ("COL. ANDREW HERRING (Ret.)") yields only the qualifier.
+  // Nor one that stops inside a parenthetical ("(AKA The Silver Fox)"), or at a
+  // small-caps glitch word that is really the caps surname ("PAUL DeGUERRE").
   if (
     strict &&
     !/^\(/.test(strict) &&
+    !/^[^(]*\)/.test(strict) &&
+    !/^[A-Z][a-z]{1,2}[A-Z]{3,}\b/.test(strict) &&
     strict.replace(/[^A-Za-z]/g, "").length > 1
   )
     return strict;
@@ -1445,6 +1465,10 @@ function collectName(pre: string, allowCaps: boolean): string {
     // would leave its ")" as a lone token; tighten it to one "(NAJA HAJE)".
     .replace(/\(\s+/g, "(")
     .replace(/\s+\)/g, ")")
+    // Likewise a quoted nickname ('COLONEL NEVILLE " NEVER " GOODENOUGH').
+    .replace(/(^|\s)"\s+([^"\s]+)\s+"(?=\s|$)/g, '$1"$2"')
+    // Kerning splits a caps word around an accented capital ("FRAN Ç OIS").
+    .replace(/\b([A-Z]{2,}) ([À-ÖØ-Þ]) ([A-Z]{2,})\b/g, "$1$2$3")
     .trim()
     .split(/\s+/)
     .filter(Boolean);
@@ -1464,12 +1488,24 @@ function collectName(pre: string, allowCaps: boolean): string {
     /^[A-Z][A-Z'’-]+$/.test(tokens[i - 1]) &&
     (/^(?:OF|THE)$/.test(tokens[i - 1]) || !capsHeadingWord(tokens[i - 1]));
   let connectors = 0;
+  // A trailing "(AKA The Silver Fox)" qualifies the caps name before it and
+  // does not count toward the limit.
+  let inParen =
+    allowCaps &&
+    /[A-Za-z]\.?\)$/.test(tokens.at(-1) ?? "") &&
+    tokens.slice(-6).some((t) => /^\([A-Za-z]/.test(t));
   for (
     let i = tokens.length - 1;
     i >= 0 && collected.length - connectors < limit;
     i--
   ) {
     const token = tokens[i];
+    if (inParen) {
+      collected.unshift(token);
+      connectors++;
+      if (token.startsWith("(")) inParen = false;
+      continue;
+    }
     if (allowCaps && capsConnector(i)) {
       collected.unshift(token);
       connectors++;
@@ -2079,6 +2115,14 @@ function groupColumns(
   numCols: number,
 ): { groupName: string; labels: string[] } {
   const tokens = window.trim().split(/\s+/).filter(Boolean);
+  // Orient Express prints a "SEX M M F" row between the member names and STR.
+  const sex = tokens.length - numCols - 1;
+  if (
+    sex >= 0 &&
+    /^SEX$/i.test(tokens[sex]) &&
+    tokens.slice(sex + 1).every((t) => /^[MF]$/.test(t))
+  )
+    tokens.splice(sex);
 
   // A monster "average / rolls" table is the odd one out: its column labels sit
   // *between* a "char." stat-name header and a "roll(s)" formula header, e.g.
@@ -2094,6 +2138,12 @@ function groupColumns(
   // hide the title from groupNameFromPrefix (which stops at a sentence end).
   const useMatch = /\bUse\s+(?:this|these|the following)\b/i.exec(prefix);
   if (useMatch) prefix = prefix.slice(0, useMatch.index);
+  // An epigraph between the title and the labels ends in its attribution
+  // ("… -H.P. Lovecraft, The Dream-Quest of Unknown Kadath", its dash already
+  // normalised); the book title it cites is not the group's, so leave the name
+  // to the heading.
+  if (/(?:^|\s)-[A-Z][^,\s]*(?:\s[A-Z][^,\s]*){0,3},[^,.]{1,80}$/.test(prefix))
+    return { groupName: "", labels };
   return { groupName: groupNameFromPrefix(prefix), labels };
 }
 

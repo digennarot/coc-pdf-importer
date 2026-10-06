@@ -651,6 +651,14 @@ describe("Horror on the Orient Express — Through the Alps", () => {
     assert.ok(byName(chars, "Dr. Jean-Louis Saroch"));
     assert.ok(chars.every((c) => !/^British /.test(c.name)));
   });
+
+  test('a "SEX M F" row and an epigraph do not name a column table', () => {
+    assert.ok(byName(chars, "Diplomats Sarnathians Theophed"));
+    assert.ok(byName(chars, "Diplomats Sarnathians Besweet"));
+    assert.ok(byName(chars, "Nightgaunts One"));
+    assert.ok(byName(chars, "Shantaks Six"));
+    assert.ok(chars.every((c) => !/^Sex |Kadath/.test(c.name)));
+  });
 });
 
 describe("Horror on the Orient Express — Italy & Beyond", () => {
@@ -718,6 +726,14 @@ describe("Horror on the Orient Express — Constantinople & Consequences", () =>
     // A lone first name before a title keeps the title as the name.
     assert.ok(byName(chars, "Countess de Bruessy"));
   });
+
+  test("a caps name keeps its alias and drops the section heading", () => {
+    assert.ok(byName(chars, "Mehmet Makryat (Aktar)"));
+    assert.ok(byName(chars, "Mehmet Makryat (Soucard, et al.)"));
+    assert.ok(byName(chars, "Aziz Bin Nassar (Charles Drake)"));
+    // A line-break hyphen inside the alias is rejoined.
+    assert.ok(byName(chars, "Antonio Abella (AKA Angelo Minotti)"));
+  });
 });
 
 describe("Horror on the Orient Express — Strangers on the Train", () => {
@@ -766,6 +782,15 @@ describe("Horror on the Orient Express — Strangers on the Train", () => {
     assert.equal(miller.characteristics.EDU!.value, 91);
     assert.ok(byName(chars, "Brett Bozeman"));
     assert.equal(byName(chars, "Lord Martin Alan-Brown").derived.DB, "+1D4");
+  });
+
+  test("quoted nicknames, aliases and small-caps surnames", () => {
+    assert.equal(byName(chars, 'Colonel Neville "Never" Goodenough').age, 65);
+    assert.ok(
+      byName(chars, 'Mrs. Elisabeth "Betty" Sunderland (AKA The Silver Fox)'),
+    );
+    assert.ok(byName(chars, "François LaVerge"));
+    assert.ok(byName(chars, "Paul DeGuerre (Staff)"));
   });
 
   test("a reprint named by its descriptor merges into its NPC", () => {
