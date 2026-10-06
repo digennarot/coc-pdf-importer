@@ -153,8 +153,42 @@ class Uploader {
           `(${(file.size / 1048576).toFixed(1)} MB) into ${this.source}:${dir}; ` +
           "check the upload permission and any proxy upload size limit",
       );
+    const problem = await servedProblem(response.path, file.size);
+    if (problem)
+      throw new Error(
+        `"${file.name}" was uploaded to ${response.path} but ${problem}`,
+      );
     return response.path;
   }
+}
+
+// Why an uploaded file is not served back intact, or null when it is. A
+// login proxy (Authelia, oauth2-proxy) whose session expired answers with a
+// redirect to its sign-in page, and a cut-off write serves fewer bytes; both
+// would leave a document showing a broken image. Absolute URLs (The Forge's
+// CDN) are another origin and are trusted as returned.
+export async function servedProblem(
+  path: string,
+  size: number,
+): Promise<string | null> {
+  if (/^[a-z][a-z\d+.-]*:/i.test(path)) return null;
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "HEAD",
+      cache: "no-store",
+      redirect: "manual",
+    });
+  } catch (err) {
+    return `could not be read back (${(err as Error).message})`;
+  }
+  if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400))
+    return "reading it back was redirected (has a login proxy session expired?)";
+  if (!res.ok) return `reading it back failed with HTTP ${res.status}`;
+  const length = res.headers.get("content-length");
+  if (length !== null && !res.headers.get("content-encoding") && +length !== size)
+    return `the server holds ${length} of its ${size} bytes`;
+  return null;
 }
 
 // Find (by name and parent) or create a folder of the given document type.

@@ -25,6 +25,9 @@ let journals: any[];
 let actors: any[];
 let uploads: { dir: string; name: string }[];
 let dirs: Set<string>;
+// Bytes of each uploaded file, served back to the importer's read-back check.
+let served: Map<string, number>;
+const realFetch = globalThis.fetch;
 
 beforeEach(() => {
   folders = [];
@@ -33,6 +36,13 @@ beforeEach(() => {
   actors = [];
   uploads = [];
   dirs = new Set();
+  served = new Map();
+  globalThis.fetch = (async (url: string) => {
+    const size = served.get(url);
+    return size === undefined
+      ? new Response(null, { status: 404 })
+      : new Response(null, { headers: { "content-length": String(size) } });
+  }) as typeof fetch;
   let n = 0;
   (globalThis as any).game = {
     world: { id: "test-world" },
@@ -82,6 +92,7 @@ beforeEach(() => {
             upload: async (_s: string, dir: string, file: File) => {
               assert.ok(dirs.has(dir), `upload into a missing directory ${dir}`);
               uploads.push({ dir, name: file.name });
+              served.set(`${dir}/${file.name}`, file.size);
               return { path: `${dir}/${file.name}` };
             },
           },
@@ -92,6 +103,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  globalThis.fetch = realFetch;
   for (const k of ["game", "CONST", "Folder", "Scene", "JournalEntry", "foundry"])
     delete (globalThis as any)[k];
 });
@@ -165,6 +177,44 @@ describe("importScenes", () => {
     assert.equal(scenes.length, 0);
   });
 
+  test("an upload that is not served back intact counts as failed", async () => {
+    globalThis.fetch = (async (url: string) =>
+      url.endsWith("02-login.webp")
+        ? // What fetch returns for a redirect under redirect: "manual".
+          ({ type: "opaqueredirect", status: 0, ok: false } as Response)
+        : url.endsWith("03-cut.webp")
+          ? new Response(null, { headers: { "content-length": "7" } })
+          : new Response(null, {
+              headers: { "content-length": String(served.get(url)) },
+            })) as typeof fetch;
+    const errors: unknown[][] = [];
+    const error = console.error;
+    console.error = (...a: unknown[]) => errors.push(a);
+    try {
+      const res = await importScenes([
+        webp("Pack/Ch/01-Good.webp", 2800, 2100),
+        webp("Pack/Ch/02-Login.webp", 2800, 2100),
+        webp("Pack/Ch/03-Cut.webp", 2800, 2100),
+      ]);
+      assert.equal(res.created, 1);
+      assert.equal(res.failed, 2);
+    } finally {
+      console.error = error;
+    }
+    assert.deepEqual(scenes.map((s) => s.name), ["01-Good"]);
+    assert.match(String(errors[0][1]), /redirected \(has a login proxy session expired\?\)/);
+    assert.match(String(errors[1][1]), /holds 7 of its 30 bytes/);
+  });
+
+  test("a gzip-encoded read-back is not compared by length", async () => {
+    globalThis.fetch = (async () =>
+      new Response(null, {
+        headers: { "content-length": "5", "content-encoding": "gzip" },
+      })) as typeof fetch;
+    const res = await importScenes([webp("Pack/Ch/01-Hall.webp", 2800, 2100)]);
+    assert.equal(res.created, 1);
+  });
+
   test("uploads go to The Forge's storage when running there", async () => {
     const fp = (globalThis as any).foundry.applications.apps.FilePicker
       .implementation;
@@ -175,6 +225,15 @@ describe("importScenes", () => {
       return upload(s, dir, file);
     };
     (globalThis as any).ForgeVTT = { usingTheForge: true };
+    // The Forge answers with CDN URLs, which are not read back.
+    fp.upload = async (s: string, dir: string, file: File) => {
+      sources.push(s);
+      await upload(s, dir, file);
+      return { path: `https://assets.forge-vtt.com/x/${dir}/${file.name}` };
+    };
+    globalThis.fetch = (async () => {
+      throw new Error("CDN URL fetched");
+    }) as typeof fetch;
     try {
       await importScenes([webp("Pack/Ch/01-Hall.webp", 2800, 2100)]);
     } finally {
