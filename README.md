@@ -4,6 +4,21 @@
 
 ## What's new
 
+- **Maps as Scenes**: pick a folder of battle maps in the import dialog and
+  every map image becomes a Scene, sized to the image and filed in Scene
+  folders that mirror the picked folder (format-only levels such as
+  `01-MAPS` or `WEBP-lower file size` are skipped, as are tokens and
+  handouts). Title and landing pages come in gridless. When the folder holds
+  the map pack's user manual (the Lovemaps Horror on the Orient Express pack
+  documents each map as `8400 x 8400 … M 140 px`), each map's cell size is read
+  from it and the grid is measured in metres; otherwise the cell size is
+  inferred from the image's dimensions. Each chapter's English handouts
+  (`03-HANDOUTS-ADJ/ENG-WEBP`) become a Journal Entry named after the chapter,
+  one image page per handout, and each creature token (`02-CREATURES TOKENS`)
+  becomes the portrait and token art of the imported actors it names.
+- **Horror on the Orient Express spells and tomes**: the spells (`DRAIN THE
+  FEZ Cost : … Casting time : …`) and Mythos tomes printed inline in Books
+  II–IV are imported as items alongside the actors.
 - **Horror on the Orient Express** (English edition, Chaosium boxed set):
   the NPCs, creatures and pre-generated investigators of Books II–V are
   imported. Book I has no stat blocks. The books' layout needed its own
@@ -108,6 +123,34 @@ The Old West sourcebook's reference chapters are imported as items: the 26
 occupations, its altered and new skills, the firearm and melee weapon tables,
 and the shamanic / folk magic spells.
 
+### Maps
+
+The second field of the import dialog takes a folder. Each image in it becomes
+a Scene (navigation off, no padding), its image uploaded under
+`worlds/<world>/coc-pdf-importer/…` and its Scene filed in folders named after
+the picked subfolders (Foundry nests at most four). Files whose name starts with
+`TOK-` and folders named for tokens or handouts are skipped. The grid is, in
+order: the cell size the pack's manual gives that map (a PDF named like a
+manual or map key, in the folder), the cell size the folder's documented maps of
+that size use, or the largest of 210 / 140 / 70 / 100 px that divides the image
+exactly; an image none divides, and title or landing pages, are gridless. A
+re-import replaces same-named Scenes in their folder.
+
+Images in a folder named for handouts become **Journal Entries**: one per folder
+holding the handouts folder (a chapter), named after it and filed under the
+picked folder's name, with one image page per handout in file order. A
+translation folder beside the English one (`FR-WEBP`) is skipped.
+
+Images in a "Creatures Tokens" folder are matched to **actors already in the
+world** — so import the books first — by creature name, ignoring an article,
+"Sample", a parenthetical, a member number and a plural (`TOK-Shantak` →
+"Shantaks One" … "Shantaks Six", `TOK-LLOIGOR A` → "Sample Lloigor"). Only
+creatures, or NPCs without a human APP/EDU stat line, are matched, so an
+automaton's "Soldier" token never lands on a human soldier. Each match gets the
+token as its portrait and prototype token image, sized in cells by its
+chapter's map grid; of a lettered set (`A` / `B` / `C`) the `A` image is used.
+Tokens no actor matches are listed in the console.
+
 ### Spells, Tomes & Artefacts
 
 Books that include Chaosium appendix sections (e.g. Masks of Nyarlathotep
@@ -123,6 +166,11 @@ Appendices B–D), or that print appendix-style entries inline in their chapters
   when the appendix prints chapter banners (`Artefacts/Peru/…`).
 - **Tomes** — also nest under region folders when a banner is present
   (`Tomes/Egypt/…`).
+
+Horror on the Orient Express prints its spells and tomes inline rather than in
+appendices; they are read by their own parser (`orient.ts`). A spell whose
+title the layout places away from its `Cost :` line, and the Dzhudzheta
+monograph (titled pages before its stats), are not imported.
 
 ## Usage
 
@@ -152,9 +200,9 @@ Appendices B–D), or that print appendix-style entries inline in their chapters
 
 ### How it works
 
-Parsing is split from Foundry entirely: `process.ts`, `pulp.ts`, `appendix.ts`
-and `oldwest.ts` never touch the Foundry API, which is what makes them directly
-testable.
+Parsing is split from Foundry entirely: `process.ts`, `pulp.ts`, `appendix.ts`,
+`oldwest.ts`, `orient.ts` and `scenes.ts` never touch the Foundry API, which is
+what makes them directly testable.
 
 1. **Extraction & parsing** — `processPDF()` (in `process.ts`) uses `pdfjs-dist`
    to read every page's text runs **once**, keeping each run's font size. From

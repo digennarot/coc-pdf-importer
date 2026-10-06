@@ -1,12 +1,19 @@
 import { importDocument } from "./document.ts";
+import { importScenes, relativePath } from "./scene-import.ts";
 
 type ImportProgress = {
   name: string;
+  kind: "document" | "maps";
   status: "pending" | "working" | "done" | "error";
   created: number;
   failed: number;
   items: number;
   pulp: number;
+  done?: number;
+  total?: number;
+  journals?: number;
+  handouts?: number;
+  tokens?: number;
   error?: string;
 };
 
@@ -46,7 +53,9 @@ export class PdfImporterConfig extends foundry.applications.api.HandlebarsApplic
   #progress: ImportProgress[] = [];
 
   _prepareContext(options: object) {
-    const totalCreated = this.#progress.reduce((n, p) => n + p.created, 0);
+    const totalCreated = this.#progress
+      .filter((p) => p.kind === "document")
+      .reduce((n, p) => n + p.created, 0);
     return {
       importing: this.#importing,
       progress: this.#progress.map((p) => ({
@@ -77,29 +86,48 @@ export class PdfImporterConfig extends foundry.applications.api.HandlebarsApplic
     form: HTMLFormElement,
     formData: object,
   ) {
-    const input = form.querySelector<HTMLInputElement>('input[name="files"]');
-    const files = input?.files;
-    if (!files || files.length === 0) {
+    const picked = (name: string) =>
+      Array.from(
+        form.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.files ??
+          [],
+      );
+    const files = picked("files");
+    const maps = picked("maps");
+    if (files.length === 0 && maps.length === 0) {
       ui.notifications.error(
         game.i18n.localize("coc-pdf-importer.Errors.NoFiles"),
       );
       return;
     }
-    await this.runImport(Array.from(files));
+    await this.runImport(files, maps);
   }
 
-  // Import each file in turn, re-rendering the progress list and the (disabled)
-  // submit button between steps so the dialog reflects live status.
-  async runImport(files: File[]) {
+  // Import each document in turn, then the picked folder of maps, re-rendering
+  // the progress list and the (disabled) submit button between steps so the
+  // dialog reflects live status.
+  async runImport(files: File[], maps: File[] = []) {
     this.#importing = true;
-    this.#progress = files.map((f): ImportProgress => ({
-      name: f.name,
-      status: "pending",
-      created: 0,
-      failed: 0,
-      items: 0,
-      pulp: 0,
-    }));
+    this.#progress = files.map(
+      (f): ImportProgress => ({
+        name: f.name,
+        kind: "document",
+        status: "pending",
+        created: 0,
+        failed: 0,
+        items: 0,
+        pulp: 0,
+      }),
+    );
+    if (maps.length)
+      this.#progress.push({
+        name: relativePath(maps[0]).split("/")[0] || maps[0].name,
+        kind: "maps",
+        status: "pending",
+        created: 0,
+        failed: 0,
+        items: 0,
+        pulp: 0,
+      });
     await this.render({ parts: ["progress", "footer"] });
 
     for (let i = 0; i < files.length; i++) {
@@ -124,6 +152,32 @@ export class PdfImporterConfig extends foundry.applications.api.HandlebarsApplic
       await this.render({ parts: ["progress"] });
     }
 
+    if (maps.length) {
+      const entry = this.#progress[this.#progress.length - 1];
+      entry.status = "working";
+      await this.render({ parts: ["progress"] });
+      try {
+        const result = await importScenes(maps, {
+          onProgress: (done, total) => {
+            entry.done = done;
+            entry.total = total;
+            if (done % 10 === 0 || done === total)
+              void this.render({ parts: ["progress"] });
+          },
+        });
+        entry.status = "done";
+        entry.created = result.created;
+        entry.failed = result.failed;
+        entry.journals = result.journals;
+        entry.handouts = result.handouts;
+        entry.tokens = result.tokens;
+      } catch (e) {
+        entry.status = "error";
+        entry.error = e instanceof Error ? e.message : String(e);
+      }
+      await this.render({ parts: ["progress"] });
+    }
+
     this.#importing = false;
     await this.render({ parts: ["progress", "footer"] });
   }
@@ -131,8 +185,28 @@ export class PdfImporterConfig extends foundry.applications.api.HandlebarsApplic
   #statusLabel(p: ImportProgress): string {
     switch (p.status) {
       case "working":
-        return game.i18n.localize("coc-pdf-importer.Progress.Working");
+        return p.kind === "maps" && p.total
+          ? game.i18n.format("coc-pdf-importer.Progress.ScenesWorking", {
+              done: p.done ?? 0,
+              total: p.total,
+            })
+          : game.i18n.localize("coc-pdf-importer.Progress.Working");
       case "done": {
+        if (p.kind === "maps") {
+          const scenes = p.failed
+            ? game.i18n.format("coc-pdf-importer.Progress.ScenesWithErrors", {
+                created: p.created,
+                failed: p.failed,
+              })
+            : game.i18n.format("coc-pdf-importer.Progress.Scenes", {
+                created: p.created,
+              });
+          const extras = [
+            p.handouts ? `${p.handouts} handouts in ${p.journals} journals` : "",
+            p.tokens ? `${p.tokens} actor tokens` : "",
+          ].filter(Boolean);
+          return extras.length ? `${scenes} (+${extras.join(", +")})` : scenes;
+        }
         const base = p.failed
           ? game.i18n.format("coc-pdf-importer.Progress.CreatedWithErrors", {
               created: p.created,

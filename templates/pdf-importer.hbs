@@ -3,9 +3,13 @@
     <legend>{{localize 'coc-pdf-importer.Settings.Name'}}</legend>
     <div class="form-group">
       <label>{{localize 'coc-pdf-importer.Form.Upload'}}</label>
+      <input type="file" id="file-upload" name="files" accept=".pdf" multiple />
       <p class="hint">{{localize 'coc-pdf-importer.Settings.Hint'}}</p>
-      <input type="file" id="file-upload" name="files" multiple />
-      </div>
+    </div>
+    <div class="form-group">
+      <label>{{localize 'coc-pdf-importer.Form.Maps'}}</label>
+      <input type="file" id="maps-upload" name="maps" webkitdirectory multiple />
+      <p class="hint">{{localize 'coc-pdf-importer.Form.MapsHint'}}</p>
     </div>
   </fieldset>
 </section>

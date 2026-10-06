@@ -9,3 +9,5 @@ golden/
 fvtt.config.js
 
 example_files/
+# Horror on the Orient Express boxed-set assets (copyrighted maps, tokens, handouts)
+test/integration/Horror on the Orient Express/

@@ -19,6 +19,8 @@ interface FoundryFolder {
 interface FoundryActor {
   id?: string;
   name?: string;
+  type?: string;
+  img?: string;
   folder?: FoundryFolder | null;
   system?: any;
   createEmbeddedDocuments(
@@ -40,10 +42,25 @@ interface FoundryItem {
   delete(): Promise<unknown>;
 }
 
+interface FoundryScene {
+  id?: string;
+  name?: string;
+  folder?: FoundryFolder | string | null;
+  delete(): Promise<unknown>;
+}
+
 interface FoundryGame {
   i18n: FoundryI18n;
+  world?: { id: string };
   actors?: {
     filter(predicate: (actor: FoundryActor) => boolean): FoundryActor[];
+  };
+  scenes?: {
+    filter(predicate: (scene: FoundryScene) => boolean): FoundryScene[];
+  };
+  // Journal entries share the Scene stub's shape (name, folder, delete).
+  journal?: {
+    filter(predicate: (entry: FoundryScene) => boolean): FoundryScene[];
   };
   items?: { filter(predicate: (item: FoundryItem) => boolean): FoundryItem[] };
   folders?: {
@@ -83,6 +100,21 @@ declare const ui: FoundryUi;
 declare const Hooks: { once(hook: string, fn: (...args: any[]) => void): void };
 declare const Actor: { create(data: object): Promise<FoundryActor> };
 declare const Item: { create(data: object): Promise<FoundryItem> };
+declare const Scene: { create(data: object): Promise<FoundryScene> };
+declare const JournalEntry: { create(data: object): Promise<FoundryScene> };
+// The server file browser, as the upload API the scene importer uses.
+interface FoundryFilePicker {
+  upload(
+    source: string,
+    path: string,
+    file: File,
+    body?: object,
+    options?: { notify?: boolean },
+  ): Promise<{ path?: string; status?: string } | false | void>;
+  createDirectory(source: string, target: string, options?: object): Promise<unknown>;
+  browse(source: string, target: string, options?: object): Promise<unknown>;
+}
+declare const CONST: { GRID_TYPES: { GRIDLESS: number; SQUARE: number } };
 declare const Folder: {
   create(data: {
     name: string;
@@ -92,6 +124,7 @@ declare const Folder: {
 };
 declare const foundry: {
   applications: {
+    apps?: { FilePicker?: { implementation: FoundryFilePicker } };
     api: {
       ApplicationV2: abstract new (...args: any[]) => unknown;
       // We don't type the ApplicationV2 framework: the mixin hands back a

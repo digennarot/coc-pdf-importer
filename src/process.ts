@@ -4,10 +4,11 @@ import type { PulpItem } from "./pulp.ts";
 import { parseAppendixItems } from "./appendix.ts";
 import { parseOldWestItems } from "./oldwest.ts";
 import type { OldWestItem } from "./oldwest.ts";
+import { parseOrientExpressItems } from "./orient.ts";
 
 // A processed document: the actor stat blocks plus any pulp reference items
 // (talents, archetypes, spells/tomes/artefacts, Old West occupations/skills/
-// weapons) as internal structures (not yet Foundry documents). A document with
+// weapons, Orient Express spells/tomes) as internal structures (not yet Foundry documents). A document with
 // none of these yields items: [].
 export interface ProcessedDocument {
   actors: CocCharacter[];
@@ -4079,6 +4080,15 @@ async function extractPages(data: Uint8Array): Promise<RawItem[][]> {
   return Promise.all(pages);
 }
 
+// Every page's text items with their baseline position, for readers that go by
+// layout rather than reading order (a map pack manual's key — see scenes.ts).
+export async function extractPositionedText(
+  data: Uint8Array,
+): Promise<{ str: string; x: number; y: number }[][]> {
+  const pages = await extractPages(data);
+  return pages.map((items) => items.map(({ str, x, y }) => ({ str, x, y })));
+}
+
 // The full plain text of the document — every item's string joined, whitespace
 // collapsed. This is what the pulp item parser reads (headings, tables, and prose
 // in reading order; no font/height needed).
@@ -4276,6 +4286,7 @@ export async function processPDF(data: Uint8Array): Promise<ProcessedDocument> {
       ...parsePulpItems(text),
       ...parseAppendixItems(text),
       ...parseOldWestItems(text),
+      ...parseOrientExpressItems(text),
     ],
   };
 }
