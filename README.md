@@ -1,5 +1,23 @@
 # Call of Cthulhu PDF Importer
 
+**English** · [Italiano](README.it.md)
+
+## What's new
+
+- **Horror on the Orient Express** (English edition, Chaosium boxed set):
+  the NPCs, creatures and pre-generated investigators of Books II–V are
+  imported. Book I has no stat blocks. The books' layout needed its own
+  handling: ALL-CAPS names with nicknames and aliases (`"THE CRAWLING ONE (AKA
+  …)"`), small-caps surnames (`LaVERGE`), descriptor-first pre-gen headings,
+  column tables for groups (Sarnathians, Nightgaunts, Shantaks), open-ended
+  values (`EDU 99+`), and weapon or spell prose kept out of attack names.
+- **Words hyphenated across a line** (`de- flects`, `Sur- geon`) are rejoined
+  in every imported field: names, occupations, attack notes, armor, Sanity
+  loss, spells, gear and background text.
+- The module now lives in [digennarot's fork](https://github.com/digennarot/coc-pdf-importer),
+  with CI on every push and an automatic GitHub release on every push to
+  `main` (see [Releasing](#releasing)).
+
 ## Overview
 
 Import content from documents that use the standard Chaosium layout into the
@@ -21,6 +39,11 @@ Tested on the following documents:
 - Does Love Forgive
 - Mansions of Madness
 - The Lightless Beacon
+- Horror on the Orient Express (English edition, Books II–V)
+
+Only the English editions are supported: the parser reads the English stat
+labels (STR, CON, SIZ…), so translated books such as the Italian
+"Orrore sull'Orient Express" are not imported yet.
 
 A single import reads a document once and creates both **actors** and, when the
 document contains them, **items** (Pulp Cthulhu talents/archetypes, Chaosium
