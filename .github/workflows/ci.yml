@@ -1,0 +1,54 @@
+name: CI
+
+# Checks every push and pull request: type-check, unit tests, then the
+# production module build. The built build/module.zip + build/module.json are
+# uploaded as a workflow artifact so any commit can be installed and tried in
+# Foundry without cutting a release (Release does that, from main).
+#
+# The integration tests are not run here: they need the copyrighted PDFs in
+# fixtures/ (see fixtures/README.md), which are never committed.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Install 7-Zip
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Build the module
+        run: npm run build:module
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coc-pdf-importer-${{ github.sha }}
+          path: |
+            build/module.zip
+            build/module.json
+          if-no-files-found: error
