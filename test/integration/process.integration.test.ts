@@ -630,6 +630,27 @@ describe("Horror on the Orient Express — Through the Alps", () => {
       ["Claw", "Tentacles"],
     );
   });
+
+  test('"OF"/"THE" and particles inside a caps name', () => {
+    assert.ok(byName(chars, "Nisra the Daughter of Fate"));
+    assert.ok(byName(chars, "Duc Jean Floressas des Esseintes"));
+  });
+
+  test("a group's age range does not hide its name", () => {
+    const thugs = byName(chars, "Menkaph's Thugs");
+    assert.equal(thugs.age, null);
+    assert.equal(thugs.description, "Willing wearers of the Red Fez");
+    assert.ok(byName(chars, "Menkaph's Fez Servants"));
+  });
+
+  test("a pregen's descriptor before its age is not its name", () => {
+    const worth = byName(chars, "Professor Harold 'Harry' Worth");
+    assert.equal(worth.age, 40);
+    assert.equal(worth.description, "British Archaeologist");
+    assert.ok(byName(chars, "Captain Roderick Barrington, Bart"));
+    assert.ok(byName(chars, "Dr. Jean-Louis Saroch"));
+    assert.ok(chars.every((c) => !/^British /.test(c.name)));
+  });
 });
 
 describe("Horror on the Orient Express — Italy & Beyond", () => {
@@ -650,6 +671,52 @@ describe("Horror on the Orient Express — Italy & Beyond", () => {
     const shield = c.combat.find((a) => a.name === "Shield")!;
     assert.equal(shield.note, "blocks attacks, 25 hp");
     assert.ok(c.combat.some((a) => a.name === "Dodge"));
+  });
+
+  test('"X OF Y" caps names are read whole', () => {
+    for (const n of [
+      "Andre of Troyes",
+      "Renaud of Flanders",
+      "Eloise of Flanders",
+      "Belasir of Tihama",
+      "Damanais of Savaria",
+      "Emeric of the Suevi",
+    ])
+      assert.ok(byName(chars, n), `${n} missing`);
+  });
+
+  test("a handedness effect ends the previous attack", () => {
+    const c = byName(chars, "Damanais of Savaria");
+    assert.deepEqual(
+      c.combat.map((a) => a.name),
+      [
+        "Brawl",
+        "Hasta (heavy thrusting spear)",
+        "Verrutum (throwing spear)",
+        "Medium Oval Shield",
+        "Dodge",
+      ],
+    );
+    assert.equal(c.combat[1].note, "2 handed");
+    const tillius = byName(chars, "Tribuni Comites Tillius Corvus");
+    assert.equal(tillius.combat[2].note, "2-handed");
+    assert.equal(tillius.combat[3].name, "Medium Round Shield");
+  });
+});
+
+describe("Horror on the Orient Express — Constantinople & Consequences", () => {
+  let chars: Awaited<ReturnType<typeof load>>;
+  before(async () => {
+    chars = await loadOrientExpress("IV - Constantinople & Consequences");
+  });
+
+  test('"NAME THE EPITHET" and descriptor-first headings', () => {
+    assert.ok(byName(chars, "Beylab the Perspirer"));
+    assert.ok(byName(chars, "Hakim the Unruly"));
+    const margrave = byName(chars, "Lord Michael Margrave");
+    assert.equal(margrave.description, "Baron of Blackpool");
+    // A lone first name before a title keeps the title as the name.
+    assert.ok(byName(chars, "Countess de Bruessy"));
   });
 });
 

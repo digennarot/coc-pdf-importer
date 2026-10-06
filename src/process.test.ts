@@ -2645,4 +2645,67 @@ describe("Orient Express stat blocks (unit)", () => {
       ],
     );
   });
+
+  const falcones =
+    "STR 75 CON 70 SIZ 70 INT 65 POW 65 DEX 65 APP 60 EDU 70 Sanity: 70 " +
+    "Build: 1 Move: 8 HP: 14 Damage Bonus : +1D4 ";
+
+  test("a handedness effect ends the previous attack", () => {
+    const [c] = parseCocCharacters(
+      "DAMANAIS OF SAVARIA , Age 36, Falcones Spearman " +
+        falcones +
+        "Hasta (heavy thrusting spear) 85% (42/17), damage 1D6 + 1D4, 2 handed " +
+        "Verrutum (throwing spear) 45% (22/9), damage 1D6 + 1D2, base range 25 yards " +
+        "Medium Round Shield 35% (17/7), blocks attacks, 25 HP Dodge 45% (22/9)",
+    );
+    assert.equal(c.name, "Damanais of Savaria");
+    assert.deepEqual(
+      c.combat.map((a) => [a.name, a.note]),
+      [
+        ["Hasta (heavy thrusting spear)", "2 handed"],
+        ["Verrutum (throwing spear)", "base range 25 yards"],
+        ["Medium Round Shield", "blocks attacks, 25 HP"],
+        ["Dodge", null],
+      ],
+    );
+  });
+
+  test('"OF"/"THE" inside a caps name, a lowercase particle', () => {
+    for (const [heading, name] of [
+      [
+        "EMERIC OF THE SUEVI , Age 40, Falcones Swordsman",
+        "Emeric of the Suevi",
+      ],
+      [
+        "NISRA THE DAUGHTER OF FATE , Age 28, Harem Girl",
+        "Nisra the Daughter of Fate",
+      ],
+      [
+        "DUC JEAN FLORESSAS des ESSEINTES , Age 90, Duke",
+        "Duc Jean Floressas des Esseintes",
+      ],
+    ]) {
+      const [c] = parseCocCharacters(`${heading} ${falcones}`);
+      assert.equal(c.name, name);
+    }
+  });
+
+  test("a group's age range", () => {
+    const [c] = parseCocCharacters(
+      "MENKAPH’S THUGS , Age 25-35, Willing wearers of the Red Fez " + falcones,
+    );
+    assert.equal(c.name, "Menkaph's Thugs");
+    assert.equal(c.age, null);
+    assert.equal(c.description, "Willing wearers of the Red Fez");
+  });
+
+  test("a descriptor before the age is not the name", () => {
+    const [c] = parseCocCharacters(
+      "PROFESSOR HAROLD ‘HARRY’ WORTH , British Archaeologist, Age 40 " +
+        falcones,
+    );
+    assert.equal(c.name, "Professor Harold 'Harry' Worth");
+    assert.equal(c.age, 40);
+    assert.equal(c.description, "British Archaeologist");
+  });
 });

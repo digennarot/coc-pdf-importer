@@ -711,16 +711,18 @@ function cleanActorName(name: string): string {
 // del GARDA") stays, any other heading is dropped. A caps name with lowercase
 // particles ("MAXIMILLIAN von WURTHEIM") or a small-caps glitch ("LaVERGE",
 // "MeRISSA OCANA") is title-cased too. A name with no caps word is unchanged.
-const NAME_PARTICLE = /^(?:de|del|della|di|da|du|von|van|der|la|le)$/;
+const NAME_PARTICLE = /^(?:de|des|del|della|di|da|du|von|van|der|la|le)$/;
 const HONORIFIC =
   /^(?:Dr|Mr|Mrs|Ms|Miss|Sir|Lady|Lord|Don|Doña|Count|Countess|Baron|Baroness|Professor|Prof|Captain|Capt|Father|Colonel|Col|Major|Lieutenant|Lt)\.?$/;
 function capsNameTail(name: string): string {
   const tokens = name.split(" ");
   const bare = (t: string) => t.replace(/^["'“(]+|["'”),]+$/g, "");
-  // A caps word: two or more letters, all capitals, or a small-caps glitch.
+  // A caps word: two or more letters, all capitals, or a small-caps glitch
+  // ("LaVERGE", "JEAN-LOUIs").
   const capsWord = (t: string) =>
     /^[A-Z][A-Z.'’-]*[A-Z.]$/.test(bare(t)) ||
-    /^[A-Z][a-z]{1,2}[A-Z]{3,}$/.test(bare(t));
+    /^[A-Z][a-z]{1,2}[A-Z]{3,}$/.test(bare(t)) ||
+    /^[A-Z][A-Z'’-]{3,}[a-z]$/.test(bare(t));
   const inName = (t: string) =>
     capsWord(t) || NAME_PARTICLE.test(t) || /^[A-Z]\.?$/.test(bare(t));
   let start = tokens.length;
@@ -1108,8 +1110,10 @@ function parseHeader(
   // and 60" list. Prefer the last match carrying that explicit marker: it sits at
   // the start of the list, so the name stops before the whole list (a later bare
   // ", 59," is a continuation, not a new name).
+  // A group gives an age range ("MENKAPH'S THUGS, Age 25-35, …"); its age is
+  // left unset.
   const ageRe =
-    /,\s*["']?\s*((?:ages?|appears?)\s+)?(\d{1,3})\+?\s*(?:\([^()]{0,30}\)\s*)?(?:,|(?=\s*$))/gi;
+    /,\s*["']?\s*((?:ages?|appears?)\s+)?(\d{1,3})(\s*[-–]\s*\d{1,3})?\+?\s*(?:\([^()]{0,30}\)\s*)?(?:,|(?=\s*$))/gi;
 
   let best: RegExpMatchArray | null = null;
   let prefixed: RegExpMatchArray | null = null;
@@ -1184,11 +1188,35 @@ function parseHeader(
       Math.max(leftBound, commaAbs - nameLookback),
       commaAbs,
     );
-    const name = extractName(namePre);
-    const description = trimDescription(text.slice(descAbs, strIndex));
+    let name = extractName(namePre);
+    let description = trimDescription(text.slice(descAbs, strIndex));
+    // The descriptor may come before the age, after a caps name ("PROFESSOR
+    // HAROLD ‘HARRY’ WORTH, British Archaeologist, Age 40" — Orient Express
+    // pregens): the caps name is the name, the mixed-case run the descriptor.
+    // A baronet's suffix ("BARRINGTON, BART .,") stays with the name. A lone
+    // first name before a title ("EMMANUELLE, Countess de Bruessy") is not
+    // such a name: the title is how she is known.
+    const descFirst = /^(.*?[A-Z]{2,}[\s.]*),\s+([A-Z][a-z][^,]*?)\s*$/.exec(
+      namePre,
+    );
+    if (!description && descFirst && name === clean(descFirst[2])) {
+      const suffix = /,\s*(BART|BT|JR|SR)\s*\.?\s*$/.exec(descFirst[1]);
+      const nameRun = suffix
+        ? descFirst[1].slice(0, suffix.index)
+        : descFirst[1];
+      const capsName = extractName(nameRun);
+      if (
+        capsName.split(" ").length >= 2 &&
+        /[A-Z]{3,}/.test(capsName) &&
+        !/(?:^|\s)[a-z]/.test(capsName)
+      ) {
+        name = suffix ? `${capsName}, ${suffix[1]}.` : capsName;
+        description = trimDescription(descFirst[2]);
+      }
+    }
     return {
       name,
-      age: Number(best[2]),
+      age: best[3] ? null : Number(best[2]),
       description,
       headerStart: nameStartAbs(text, commaAbs, name),
     };
@@ -1423,13 +1451,31 @@ function collectName(pre: string, allowCaps: boolean): string {
   const collected: string[] = [];
   const limit = allowCaps ? 4 : 8;
 
-  for (let i = tokens.length - 1; i >= 0 && collected.length < limit; i--) {
+  const capsHeadingWord = (t: string) =>
+    HEADING_WORDS.has(t.replace(/[^A-Za-z]/g, "").toUpperCase());
+  // "OF" / "THE" joining two caps name words is part of the name ("ANDRE OF
+  // TROYES", "EMERIC OF THE SUEVI", "NISRA THE DAUGHTER OF FATE" — Orient
+  // Express), so it neither stops the walk nor counts toward the limit.
+  const capsConnector = (i: number) =>
+    /^(?:OF|THE)$/.test(tokens[i]) &&
+    collected.length > 0 &&
+    /^[A-Z]{2,}$/.test(collected[0]) &&
+    i > 0 &&
+    /^[A-Z][A-Z'’-]+$/.test(tokens[i - 1]) &&
+    (/^(?:OF|THE)$/.test(tokens[i - 1]) || !capsHeadingWord(tokens[i - 1]));
+  let connectors = 0;
+  for (
+    let i = tokens.length - 1;
+    i >= 0 && collected.length - connectors < limit;
+    i--
+  ) {
     const token = tokens[i];
-    if (
-      allowCaps &&
-      HEADING_WORDS.has(token.replace(/[^A-Za-z]/g, "").toUpperCase())
-    )
-      break;
+    if (allowCaps && capsConnector(i)) {
+      collected.unshift(token);
+      connectors++;
+      continue;
+    }
+    if (allowCaps && capsHeadingWord(token)) break;
     // A word ending in "." (or a closing quote after it: 'Doorstep."') is a
     // sentence boundary (the name is after it), unless it is an initial ("B.")
     // or a title abbreviation ("Dr.", "Lt.").
@@ -1455,13 +1501,16 @@ function collectName(pre: string, allowCaps: boolean): string {
     }
     if (!isNameToken(token, allowCaps)) break;
     collected.unshift(token);
+    // A lowercase particle ("DUC JEAN FLORESSAS des ESSEINTES") is not a word.
+    if (allowCaps && NAME_PARTICLE.test(token)) connectors++;
   }
 
   // A leading "and"/"or" is a list connector, never part of the name
   // ("Nathan Birch and Elliot Ropes" -> "Elliot Ropes" for the second block).
   return clean(collected.join(" "))
     .replace(/^Name\s*:?\s*/i, "")
-    .replace(/^(?:and|or)\s+/i, "");
+    .replace(/^(?:and|or)\s+/i, "")
+    .replace(/^(?:(?:OF|THE)\s+)+/, "");
 }
 
 function isNameToken(token: string, allowCaps: boolean): boolean {
@@ -1473,7 +1522,7 @@ function isNameToken(token: string, allowCaps: boolean): boolean {
   if (!allowCaps && /^[A-Z]{2,}$/.test(letters)) return false; // ALL-CAPS heading
   // Name particles (lowercase) that legitimately appear inside names.
   if (
-    /^(?:de|del|van|von|der|den|the|of|in|and|du|da|la|le|el|bin|al|ibn|à)$/i.test(
+    /^(?:de|des|del|van|von|der|den|the|of|in|and|du|da|la|le|el|bin|al|ibn|à)$/i.test(
       token,
     )
   ) {
@@ -2166,6 +2215,7 @@ const TITLE_CONNECTORS = new Set([
   "in",
   "at",
   "de",
+  "des",
   "la",
   "du",
   "da",
@@ -3301,6 +3351,18 @@ function parseCombat(text: string): CombatEntry[] {
       prev.note = [prev.note, runOn[1]].filter(Boolean).join(", ");
       name = runOn[2];
     }
+    // A handedness effect ends the previous row the same way ("damage 1D6 +
+    // 1D4, 2 handed Verrutum (throwing spear) 45%", "…, 2-Handed Medium Round
+    // Shield 60%").
+    const handed = /^((?:\d|one|two)[- ]?handed)\s+(.+)$/i.exec(
+      clean(match[1].replace(/\*/g, "")),
+    );
+    if (prev && handed && prevEndsComma) {
+      prev.note = [prev.note, handed[1].toLowerCase()]
+        .filter(Boolean)
+        .join(", ");
+      name = cleanCombatName(handed[2]);
+    }
     prevEndsComma = /,\s*$/.test(match[0]);
     out.push({
       name,
@@ -3535,10 +3597,14 @@ function cleanCombatName(value: string): string {
     const tok = tokens[i];
     if (depth === 0) {
       const letters = tok.replace(/[^A-Za-z]/g, "");
+      // A capitalised "Round" inside a name ("Medium Round Shield") is not the
+      // "each round" stopword.
+      const roundInName = tok === "Round" && /^[A-Z]/.test(name[0] ?? "");
       if (
-        ATTACK_NAME_STOPWORDS.has(letters) ||
-        ATTACK_NAME_STOPWORDS.has(letters.toLowerCase()) ||
-        isCountToken(tok)
+        !roundInName &&
+        (ATTACK_NAME_STOPWORDS.has(letters) ||
+          ATTACK_NAME_STOPWORDS.has(letters.toLowerCase()) ||
+          isCountToken(tok))
       )
         break;
     }
