@@ -2613,4 +2613,36 @@ describe("Orient Express stat blocks (unit)", () => {
       ["Col. Andrew Herring"],
     );
   });
+  test("a derived value's prose and a glued footnote stay out of the attacks", () => {
+    const [c] = parseCocCharacters(
+      "SEDEFKAR , Age 60, Sorcerer STR 50 CON 60 SIZ 55 INT 90 POW 125 DEX 60 " +
+        "APP 35* EDU 92 Sanity: 0 Build: 0 Move: 8 HP: 12 *60 as the Dark Crusader " +
+        "Magic Points : 25 plus 25 stored in the Mims Sahis Damage Bonus : 0 " +
+        "Mims Sahis 87% (43/17), damage 2D4, ignores armor, Screaming Cut " +
+        "Brawl 87% (43/17), damage 1D3 Dodge 60% (30/12)",
+    );
+    assert.deepEqual(
+      c.combat.map((a) => [a.name, a.note]),
+      [
+        ["Mims Sahis", "ignores armor, Screaming Cut"],
+        ["Brawl", null],
+        ["Dodge", null],
+      ],
+    );
+  });
+
+  test("a maneuver's trailing effect does not lead the next attack name", () => {
+    const [c] = parseCocCharacters(
+      "CAPTAIN RAMARDI , Age 40, Captain STR 70 CON 70 SIZ 70 INT 60 POW 60 DEX 60 " +
+        "APP 50 EDU 50 Sanity 60 Build: 1 Move: 8 HP: 14 Damage Bonus : +1D4 " +
+        "Shield 60% (30/12), blocks attacks, 25 hp Dodge 40% (20/8)",
+    );
+    assert.deepEqual(
+      c.combat.map((a) => [a.name, a.note]),
+      [
+        ["Shield", "blocks attacks, 25 hp"],
+        ["Dodge", null],
+      ],
+    );
+  });
 });

@@ -1547,13 +1547,19 @@ function parseBlock(
   // so are a valueless "Damage Bonus" label, Orient Express's "Statistics"
   // box title, an unrated "Sanity n/a", and a footnote on a characteristic
   // ("APP 50 (70)* … * Appearance in brackets as Charles Drake DB : +1D4"),
-  // whose value may give an alternative ("Sanity 65/57*", "HP: 13/6*").
+  // whose value may give an alternative ("Sanity 65/57*", "HP: 13/6*") or
+  // sit glued to its marker ("*60 as the Dark Crusader"). So is a derived
+  // value's own prose ("MP : 25 plus 25 stored in the Mims Sahis DB : 0").
   if (numCols <= 1 && !combat.length && !combatText)
     combat = parseCombat(
       statHeader
         .replace(
-          /(?:^|\s)\*\s+[A-Z][^*%:]*?(?=\s+(?:DB|Build|Move|MP|Luck|HP)\b)/g,
+          /(?:^|\s)\*(?:\s+[A-Z]|\d+\s+[a-z])[^*%:]*?(?=\s+(?:DB|Build|Move|MP|Luck|HP)\b)/g,
           " ",
+        )
+        .replace(
+          /(\b(?:HP|Build|Move|MP|Luck)\s*:?\s*\d+\*?)\s+[a-z][^*%:]*?(?=\s+(?:DB|Build|Move|MP|Luck|HP)\b)/g,
+          "$1 ",
         )
         .replace(
           /\b(?:STR|CON|SIZ|DEX|INT|APP|POW|EDU|SAN|Sanity|HP|DB|Build|Move|MP|Luck)\s*:?\s*(?:[+-]?(?:\d*[dD]\d+(?:[+-]\d+)?|\d+(?:\/\d+)?)\+?\*?\.?(?=\s|$)|none\b\.?|n\/a\b)/gi,
@@ -3232,6 +3238,7 @@ function parseCombat(text: string): CombatEntry[] {
   // anchor it — when it follows the previous row directly.
   const rowName = new RegExp(String.raw`^${maneuverName}(?:\s*\([^),]*\))?$`);
   let lastEnd = -1;
+  let prevEndsComma = false;
   for (const match of text.matchAll(re)) {
     const commaRow = match[13] !== undefined || match[14] !== undefined;
     if (commaRow && !rowName.test(match[1].trim())) continue;
@@ -3282,6 +3289,19 @@ function parseCombat(text: string): CombatEntry[] {
       name = autoName[1];
       auto = `automatic (${clean(autoName[2])})`;
     }
+    // The previous row's comma-separated effects run on into this row's name
+    // ("damage 2D4, ignores armor, Screaming Cut Brawl 87%"): the words before
+    // a standard attack are the previous row's last effect. Read from the raw
+    // name, whose leading count ("blocks attacks, 25 hp Dodge") cleaning drops.
+    const prev = out[out.length - 1];
+    const runOn = /^(.+?)\s+(Brawl|Dodge|Fighting)$/.exec(
+      clean(match[1].replace(/\*/g, "")),
+    );
+    if (prev && runOn && prevEndsComma) {
+      prev.note = [prev.note, runOn[1]].filter(Boolean).join(", ");
+      name = runOn[2];
+    }
+    prevEndsComma = /,\s*$/.test(match[0]);
     out.push({
       name,
       value,

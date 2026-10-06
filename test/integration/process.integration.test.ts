@@ -632,6 +632,27 @@ describe("Horror on the Orient Express — Through the Alps", () => {
   });
 });
 
+describe("Horror on the Orient Express — Italy & Beyond", () => {
+  let chars: Awaited<ReturnType<typeof load>>;
+  before(async () => {
+    chars = await loadOrientExpress("III - Italy & Beyond");
+  });
+
+  test("Sedefkar — derived-value prose and run-on effects", () => {
+    const c = byName(chars, "Sedefkar");
+    assert.equal(c.combat[0].name, "Mims Sahis");
+    assert.equal(c.combat[0].note, "ignores armor, Screaming Cut");
+    assert.equal(c.combat[1].name, "Brawl");
+  });
+
+  test("a shield's hit points stay in its note", () => {
+    const c = byName(chars, "Captain Ramardi");
+    const shield = c.combat.find((a) => a.name === "Shield")!;
+    assert.equal(shield.note, "blocks attacks, 25 hp");
+    assert.ok(c.combat.some((a) => a.name === "Dodge"));
+  });
+});
+
 describe("Horror on the Orient Express — Strangers on the Train", () => {
   let chars: Awaited<ReturnType<typeof load>>;
   before(async () => {
