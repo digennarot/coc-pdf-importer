@@ -564,15 +564,31 @@ describe("The Lightless Beacon", () => {
 // (gitignored like every PDF) rather than fixtures/.
 const ORIENT_EXPRESS = "./test/integration/Horror on the Orient Express";
 
+// Each book is parsed once and shared by its actor and item tests.
+const orientExpressDocs = new Map<
+  string,
+  Promise<Awaited<ReturnType<typeof processPDF>>>
+>();
+function orientExpressDoc(book: string) {
+  if (!orientExpressDocs.has(book))
+    orientExpressDocs.set(
+      book,
+      (async () => {
+        const path = `${ORIENT_EXPRESS}/${book}.pdf`;
+        let buf: Buffer;
+        try {
+          buf = await fs.readFile(path);
+        } catch {
+          throw new Error(`Orient Express book "${book}" not found at ${path}.`);
+        }
+        return processPDF(new Uint8Array(buf));
+      })(),
+    );
+  return orientExpressDocs.get(book)!;
+}
+
 async function loadOrientExpress(book: string) {
-  const path = `${ORIENT_EXPRESS}/${book}.pdf`;
-  let buf: Buffer;
-  try {
-    buf = await fs.readFile(path);
-  } catch {
-    throw new Error(`Orient Express book "${book}" not found at ${path}.`);
-  }
-  return (await processPDF(new Uint8Array(buf))).actors;
+  return (await orientExpressDoc(book)).actors;
 }
 
 describe("Horror on the Orient Express — Through the Alps", () => {
@@ -814,5 +830,64 @@ describe("Horror on the Orient Express — Strangers on the Train", () => {
     assert.equal(chef.derived.DB, "+1D4");
     assert.equal(chef.combat[0].name, "Kitchen Knife");
     assert.equal(byName(chars, "Jean Renour").characteristics.EDU!.value, 45);
+  });
+});
+
+describe("Horror on the Orient Express — spells and tomes", () => {
+  const items = async (book: string) => (await orientExpressDoc(book)).items;
+  const named = (list: any[], kind: string, name: string) => {
+    const it = list.find((i) => i.kind === kind && i.name === name);
+    assert.ok(it, `${kind} "${name}" not found`);
+    return it;
+  };
+
+  test("Through the Alps: the Fez spells and tomes", async () => {
+    const list = await items("II - Through the Alps");
+    const drain = named(list, "spell", "Drain the Fez");
+    assert.equal(drain.castingTime, "One round");
+    named(list, "spell", "Dance of the Gelin");
+    named(list, "spell", "Enchant Flesh");
+    const fez = named(list, "tome", "The Whispering Fez");
+    assert.equal(fez.language, "Persian and hieroglyph");
+    assert.equal(fez.mythosRating, 21);
+    assert.match(fez.spells, /^Arrest Fez Decline, Control Servant/);
+    const head = named(list, "tome", "The Scroll of the Head");
+    assert.equal(head.sanityLoss, "1D6+1");
+    assert.deepEqual(head.study, { necessary: 40, units: "CoC7.hours" });
+    named(list, "tome", "Apocrypha of the Fez");
+  });
+
+  test("Italy & Beyond: Skinless spells and the Moric notebook", async () => {
+    const list = await items("III - Italy & Beyond");
+    const stigmata = named(list, "spell", "Skinless Stigmata");
+    assert.match(stigmata.costs.others, /cast first time/);
+    named(list, "spell", "Burden of the Skinless One");
+    const moric = named(list, "tome", "The Notebook of Dr. Moric");
+    assert.equal(moric.language, "Serbo-Croatian");
+    assert.equal(moric.author, "Dr. Dragomir Moric");
+    named(list, "tome", "Sapientia Maglorum");
+  });
+
+  test("Constantinople & Consequences: flesh magic and the Left Arm scroll", async () => {
+    const list = await items("IV - Constantinople & Consequences");
+    const transfer = named(list, "spell", "Transfer Body Part");
+    assert.equal(
+      transfer.castingTime,
+      "1 hour, plus as many minutes as magic points expended",
+    );
+    named(list, "spell", "Ritual of Cleansing (Variant Version)");
+    // Reprinted spells are kept once.
+    assert.equal(
+      list.filter((i: any) => i.name === "Melt Flesh").length,
+      1,
+    );
+    assert.equal(
+      named(list, "tome", "The Scroll of the Left Arm").spells,
+      "The Ritual of Cleansing",
+    );
+  });
+
+  test("Strangers on the Train has no spells or tomes", async () => {
+    assert.deepEqual(await items("V - Strangers on the Train"), []);
   });
 });

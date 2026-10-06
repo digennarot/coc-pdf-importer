@@ -6,7 +6,9 @@
       "Hint": "Import the documents from the modern Chaosium PDF layout."
     },
     "Form": {
-      "Upload": "Choose files to upload"
+      "Upload": "Choose files to upload",
+      "Maps": "Choose a folder of maps",
+      "MapsHint": "Each map image in the folder becomes a Scene, in Scene folders mirroring its subfolders; each chapter's English handouts become a Journal Entry; creature tokens become the art of the imported creature actors they name (import the books first). A map pack's user manual in the folder supplies each map's grid size."
     },
     "Progress": {
       "Title": "Import progress",
@@ -14,10 +16,13 @@
       "Working": "Importing…",
       "Created": "{created} actor(s) imported",
       "CreatedWithErrors": "{created} imported, {failed} failed (see console)",
-      "Total": "Done — {created} actor(s) imported in total."
+      "Total": "Done — {created} actor(s) imported in total.",
+      "Scenes": "{created} scene(s) created",
+      "ScenesWithErrors": "{created} scene(s) created, {failed} failed (see console)",
+      "ScenesWorking": "Importing maps… {done}/{total}"
     },
     "Errors": {
-      "NoFiles": "Upload at least one file",
+      "NoFiles": "Choose at least one file or a folder of maps",
       "ErrorProcessing": "Error processing file: {error}"
     },
     "ResultWithErrors": "CoC PDF Importer: created {created} actor(s), {failed} failed (see console).",

@@ -4,6 +4,23 @@
 
 ## Novità
 
+- **Mappe come scene**: nella finestra di importazione si può scegliere una
+  cartella di mappe; ogni immagine diventa una scena delle dimensioni
+  dell'immagine, in cartelle di scene che rispecchiano quella scelta (i livelli
+  che indicano solo il formato, come `01-MAPS` o `WEBP-lower file size`,
+  vengono saltati, così come token e handout). Schermate del titolo e landing
+  page vengono importate senza griglia. Se la cartella contiene il manuale del
+  pacchetto di mappe (il pacchetto Lovemaps di Horror on the Orient Express
+  riporta per ogni mappa `8400 x 8400 … M 140 px`), la dimensione delle celle di
+  ogni mappa viene letta da lì e la griglia è in metri; altrimenti viene dedotta
+  dalle dimensioni dell'immagine. Gli handout inglesi di ogni capitolo
+  (`03-HANDOUTS-ADJ/ENG-WEBP`) diventano un diario con il nome del capitolo,
+  una pagina immagine per handout, e ogni token delle creature
+  (`02-CREATURES TOKENS`) diventa ritratto e immagine del token degli attori
+  importati che nomina (importa prima i volumi).
+- **Incantesimi e tomi di Horror on the Orient Express**: gli incantesimi
+  (`DRAIN THE FEZ Cost : … Casting time : …`) e i tomi dei Miti stampati nel
+  testo dei volumi II–IV vengono importati come oggetti insieme agli attori.
 - **Horror on the Orient Express** (edizione inglese, cofanetto Chaosium):
   vengono importati i PNG, le creature e gli investigatori pregenerati
   dei volumi II–V. Il volume I non contiene schede. L'impaginazione di questi
@@ -133,6 +150,20 @@ producono oggetti del mondo:
   intestazioni dei capitoli (`Artefacts/Peru/…`).
 - Anche i **tomi** vengono annidati in cartelle per regione quando è presente
   l'intestazione (`Tomes/Egypt/…`).
+
+### Mappe
+
+Il secondo campo della finestra di importazione accetta una cartella. Ogni
+immagine diventa una scena (fuori dalla barra di navigazione, senza margini):
+l'immagine viene caricata in `worlds/<mondo>/coc-pdf-importer/…` e la scena va
+in cartelle con i nomi delle sottocartelle (Foundry ne annida al massimo
+quattro). I file che iniziano con `TOK-` e le cartelle di token o handout
+vengono saltati. La griglia è, nell'ordine: la dimensione delle celle che il
+manuale del pacchetto indica per quella mappa, quella delle mappe documentate
+della stessa cartella e delle stesse dimensioni, o la più grande tra 210 / 140 /
+70 / 100 px che divide esattamente l'immagine; un'immagine che nessuna divide,
+e le schermate del titolo e le landing page, restano senza griglia. Una nuova
+importazione sostituisce le scene con lo stesso nome nella loro cartella.
 
 ## Utilizzo
 
